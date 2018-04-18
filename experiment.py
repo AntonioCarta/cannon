@@ -122,7 +122,6 @@ class ModelSelection(Experiment):
                 else:
                     self.experiment_log.info("model selection already terminated.")
 
-        # Randomly generate some hyperparameters, and launch a task for each set.
         if remaining_ids is None:
             remaining_ids = [i for i in range(config.trials)]
             results_mapping = {}
@@ -186,8 +185,9 @@ class TrainingExperiment(Experiment):
     def __init__(self, log_dir, resume_ok=True):
         super().__init__(log_dir, resume_ok=resume_ok)
 
-    def save_checkpoint(self, tr_err, vl_err, tr_acc, vl_acc):
+    def save_checkpoint(self, params, tr_err, vl_err, tr_acc, vl_acc):
         d = {
+            'params': params,
             'tr_err': tr_err,
             'vl_err': vl_err,
             'tr_acc': tr_acc,
@@ -224,7 +224,7 @@ class TrainingExperiment(Experiment):
             'vl_acc_std': np.std(vl_acc)
         }
 
-        self.save_checkpoint(tr_err, vl_err, tr_acc, vl_acc)
+        self.save_checkpoint(config.params, tr_err, vl_err, tr_acc, vl_acc)
         self.experiment_log.info("TR error avg {}, std {}".format(np.average(tr_err), np.std(tr_err)))
         self.experiment_log.info("VL error avg {}, std {}".format(np.average(vl_err), np.std(vl_err)))
         self.experiment_log.info("VL acc   avg {}, std {}".format(np.average(vl_acc), np.std(vl_acc)))

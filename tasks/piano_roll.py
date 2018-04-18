@@ -2,6 +2,7 @@ import torch
 import pickle
 from typing import Tuple
 from torch.autograd import Variable
+from cannon.utils import cuda_move
 
 
 class PianoRollData:
