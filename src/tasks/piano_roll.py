@@ -2,7 +2,6 @@ import torch
 import pickle
 from typing import Tuple
 from torch.autograd import Variable
-from cannon.utils import cuda_move
 
 
 class PianoRollData:
@@ -89,7 +88,7 @@ class PianoRollData:
         return self.X, self.y, self.masks
 
     def get_one_hot_list(self):
-        """ Iterator over the whole dataset with batch size=1. Pass the entire sequnce and does not need masking. """
+        """ Iterator over the whole dataset with batch size=1. Pass the entire sequence and does not need masking. """
         if not self.parsed_song_X:
             self.create_data()
 
@@ -98,12 +97,18 @@ class PianoRollData:
 
     @staticmethod
     def frame_level_accuracy(y_out, target):
+        assert len(y_out.size()) == 2
         y_out = (y_out > .5).float()
-        TP = torch.sum(target * y_out)
-        FP = torch.sum((1 - target) * y_out)
-        FN = torch.sum(target * (1 - y_out))
-        acc = TP / (TP + FP + FN)
-        return acc
+        TP = torch.sum(target * y_out, dim=1)
+        FP = torch.sum((1 - target) * y_out, dim=1)
+        FN = torch.sum(target * (1 - y_out), dim=1)
+
+        den = (TP + FP + FN)
+        TP = TP[den > 0]
+        den = den[den > 0]
+
+        acc = TP / den
+        return torch.mean(acc)
 
     def __str__(self):
         return "Data from {}. (key={}, t_step={}, skip={})".format(self.fname, self.key, self.timesteps, self.skip)

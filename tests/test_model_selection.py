@@ -1,6 +1,6 @@
 import sys
-sys.path.append('./src')
-from cannon.experiment import ModelSelectionConfig, ModelSelection
+sys.path.append('../src')
+from experiment import ModelSelectionConfig, ModelSelection
 
 
 class MockData():

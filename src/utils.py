@@ -21,14 +21,18 @@ def set_gpu():
     os.environ['CUDA_VISIBLE_DEVICES'] = str(bestGPU)
 
 
-def cuda_move(*args):
+def cuda_move(args):
     """ Move a sequence of tensors to CUDA if the system supports it. """
     b = torch.cuda.is_available()
-    for t in args:
-        if b:
-            yield t.cuda()
-        else:
-            yield t
+    # for t in args:
+    #     if b:
+    #         yield t.cuda()
+    #     else:
+    #         yield t
+    if b:
+        return args.cuda()
+    else:
+        return args
 
 
 def gradient_clipping(model, clip=1):

@@ -1,6 +1,6 @@
 import sys
 sys.path.append('./src')
-from cannon.tasks import PianoRollData
+from tasks import PianoRollData
 import torch
 
 
