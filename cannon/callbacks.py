@@ -1,14 +1,14 @@
-import setGPU
 import pickle
 import torch
-from tensorboardX import SummaryWriter
-
-from cannon.tasks import PianoRollData
 from torch.autograd import Variable
 from cannon.utils import cuda_move
 import random
 import torch.nn.functional as F
 
+try:
+    from tensorboardX import SummaryWriter
+except ModuleNotFoundError:
+    print("tensorboardX is not available. TBCallback cannot be used without it.")
 
 class TrainingCallback:
     def __init__(self):
