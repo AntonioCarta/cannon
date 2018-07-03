@@ -202,6 +202,7 @@ class TorchTrainer:
         self.save_checkpoint(e)
         for cb in self.callbacks:
             cb.after_training(self)
+        self.logger.info("Training completed.")
         return self.train_losses, self.val_losses
 
     def save_checkpoint(self, e):
@@ -223,8 +224,13 @@ class TorchTrainer:
         }
         for p in self.serializable_params:
             train_params[p.name] = p.value
+
+        pd = None
+        if hasattr(self.model, 'params_dict'):
+            pd = self.model.params_dict()
+
         d = {
-            'model_params': self.model.params_dict(),
+            'model_params': pd,
             'train_params': train_params,
             'best_result': self.best_result,
             'tr_loss': self.train_losses,
