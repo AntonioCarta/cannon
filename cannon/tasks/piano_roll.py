@@ -1,33 +1,26 @@
 import torch
 import pickle
-from typing import Tuple
 from torch.autograd import Variable
+from torch.utils.data import Dataset
+import torch.nn.functional as F
+from cannon.utils import cuda_move
 
 
-class PianoRollData:
-    def __init__(self, fname, key='train', timesteps=50, skip=10) -> None:
+class PianoRollData(Dataset):
+    def __init__(self, fname, key='train') -> None:
         self.fname = fname
         self.key = key
-        self.timesteps = timesteps
-        self.skip = skip
         self.raw_list = None
-        self.X = None
-        self.y = None
         self.parsed_song_X = None
         self.parsed_song_y = None
-        self.masks = None
         self.load_data(fname, key)
         self.create_data()
 
     def __getitem__(self, i):
-        if self.X is None:
-            self.get_data()
-        return self.X[:, i, :].data, self.y[:, i, :].data
+        return self.parsed_song_X[i], self.parsed_song_y[i]
 
     def __len__(self):
-        if self.X is None:
-            self.get_data()
-        return self.X.size(1)
+        return len(self.parsed_song_X)
 
     def load_data(self, fname, key):
         with open(fname, 'rb') as f:
@@ -47,48 +40,16 @@ class PianoRollData:
                     note = note - 21  # piano roll notes have range [21, 108]
                     X_song[t, note] = 1
 
-            parsed_song_X.append(X_song[:-1])
-            parsed_song_y.append(X_song[1:])
+            parsed_song_X.append(torch.tensor(X_song[:-1]))
+            parsed_song_y.append(torch.tensor(X_song[1:]))
         self.parsed_song_X = parsed_song_X
         self.parsed_song_y = parsed_song_y
 
-    def get_data(self) -> Tuple[Variable, Variable, Variable]:
-        if self.X is not None and self.y is not None:
-            # Data has been already created
-            return self.X, self.y, self.masks
-
-        if self.parsed_song_X is None:
-            self.create_data()
-
-        batches_X = []
-        batches_y = []
-        masks = []
-        a = torch.arange(0, self.timesteps)
-        for X_song in self.parsed_song_X:
-            # create batch from song tensor
-            min_batch_size = self.timesteps // 4
-            for i in range(0, X_song.size(0) - min_batch_size - 1, self.skip):
-                t_n = min(X_song.size(0) - i, self.timesteps + 1)
-                x_song_n = torch.zeros(self.timesteps, 88)
-                y_song_n = torch.zeros(self.timesteps, 88)
-                x_song_n[:t_n-1, :] = X_song[i:i + t_n - 1]
-                y_song_n[:t_n-1, :] = X_song[i + 1:i + t_n]
-                mask_n = a < t_n - 1
-                batches_X.append(x_song_n)
-                batches_y.append(y_song_n)
-                masks.append(mask_n)
-
-        # dim: (batch, time, feat)
-        self.X = torch.stack(batches_X)
-        self.y = torch.stack(batches_y)
-        self.masks = torch.stack(masks)
-        self.X = Variable(torch.transpose(self.X, 0, 1))
-        self.y = Variable(torch.transpose(self.y, 0, 1))
-        self.masks = Variable(torch.transpose(self.masks, 0, 1).float().unsqueeze(2))
-        return self.X, self.y, self.masks
-
     def get_one_hot_list(self):
-        """ Iterator over the whole dataset with batch size=1. Pass the entire sequence and does not need masking. """
+        """ Deprecated!
+            Iterator over the whole dataset with batch size=1.
+            Pass the entire sequence and does not need masking.
+        """
         if not self.parsed_song_X:
             self.create_data()
 
@@ -110,5 +71,46 @@ class PianoRollData:
         acc = TP / den
         return torch.mean(acc)
 
+    @staticmethod
+    def compute_metrics_packed(model, data, batch_size=128):
+        X_train, y_train = [], []
+        for x, y in data.get_one_hot_list():
+            X_train.append(x)
+            y_train.append(y)
+
+        me = 0.0
+        acc = 0.0
+        n_batch = 0
+        sum_masks = 0
+        with torch.no_grad():
+            for i in range(0, len(X_train), batch_size):
+                max_idx = min(batch_size, len(X_train) - i)
+                max_len = max([X_train[i + k].size(0) for k in range(max_idx)])
+                X_i = Variable(torch.zeros(max_len, max_idx, 88))
+                y_i = Variable(torch.zeros(max_len, max_idx, 88))
+                mask_i = Variable(torch.zeros(max_len, max_idx, 1))
+                X_i, y_i, mask_i = cuda_move(X_i), cuda_move(y_i), cuda_move(mask_i)
+
+                for k in range(max_idx):
+                    l = X_train[i + k].size(0)
+                    X_i[:l, k:k + 1, :] = X_train[i + k]
+                    y_i[:l, k:k + 1, :] = y_train[i + k]
+                    mask_i[:l, k:k + 1, :] = 1
+
+                y_out = model.forward(X_i)
+                y_out = y_out * mask_i.expand_as(y_out)
+                y_i = y_i * mask_i.expand_as(y_i)
+
+                me += F.binary_cross_entropy_with_logits(y_out, y_i).item()
+                y_out = F.sigmoid(y_out)
+
+                for j in range(y_out.size(1)):
+                    curr_acc = PianoRollData.frame_level_accuracy(y_out[:, j, :], y_i[:, j, :]).item()
+                    acc += X_train[i + j].size(0) * curr_acc
+                    sum_masks += X_train[i + j].size(0)
+
+                n_batch += max_idx
+        return me / n_batch, acc / sum_masks
+
     def __str__(self):
-        return "Data from {}. (key={}, t_step={}, skip={})".format(self.fname, self.key, self.timesteps, self.skip)
+        return "Data from {}. (key={})".format(self.fname, self.key)
