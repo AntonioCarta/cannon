@@ -3,9 +3,9 @@ import torch
 from torch.autograd import Variable
 import torch.nn as nn
 import torch.nn.functional as F
-from src.utils import cuda_move
-from src.callbacks import TBCallback
-from src.nn_utils import selu
+from ..utils import cuda_move
+from ..callbacks import TBCallback
+from ..nn_utils import selu
 
 
 class SeLULinearMemory(nn.Module):
