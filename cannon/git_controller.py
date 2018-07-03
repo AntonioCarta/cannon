@@ -2,7 +2,7 @@ import os
 import subprocess
 
 
-class GitController():
+class GitController:
     """
         Logging utilities to save the source code used to perform an experiment.
         Exploits git to save the source into a separate repository used only
@@ -25,12 +25,14 @@ class GitController():
         Returns:
             commit hash
         """
-        cwd = os.getcwd()
+        if msg is None:
+            msg = 'automatic experiment commit'
 
+        cwd = os.getcwd()
         subprocess.call("cp -r {}/src {}/src".format(self.git_root, self.exp_log_root), shell=True)
         os.chdir(self.exp_log_root)
         subprocess.call("git add .", shell=True)
-        subprocess.call("git commit -m {}".format('\"automatic experiment commit\"'), shell=True)
+        subprocess.call("git commit -m {}".format('\"{}\"'.format(msg)), shell=True)
 
         commit_hash = subprocess.check_output("git rev-parse HEAD", shell=True)
         commit_hash = commit_hash.decode("utf8").strip()
