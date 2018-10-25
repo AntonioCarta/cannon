@@ -4,6 +4,8 @@ from torch.autograd import Variable
 from cannon.utils import cuda_move
 import random
 import torch.nn.functional as F
+import torch.optim as optim
+
 
 try:
     from tensorboardX import SummaryWriter
@@ -125,3 +127,24 @@ class TBCallback(TrainingCallback):
 
     def __str__(self):
         return "TBCallback(logdir={})".format(self.log_dir)
+
+
+class LRDecayCallback(TrainingCallback):
+    """ Periodically reduce the learning rate if the validation performance is not improving.
+    The optimizer used by the trainer must be torch.optim.SGD.
+
+    Attributes:
+        decay_rate (float): multiplicative factor used to compute the new lr. must be < 1.
+    """
+    def __init__(self, decay_rate=0.9):
+        self.decay_rate = decay_rate
+
+    def after_epoch(self, model_trainer, train_data, validation_data):
+        if model_trainer.global_step % model_trainer.validation_steps == 0 and \
+                len(model_trainer.train_losses) >= 2 and \
+                model_trainer.train_losses[-1] > model_trainer.train_losses[-2]:
+            wd = model_trainer.opt.param_groups[0]['weight_decay']
+            mom = model_trainer.opt.param_groups[0]['momentum']
+            new_lr = model_trainer.opt.param_groups[0]['lr'] * self.decay_rate
+            model_trainer.logger.info("learning rate decreased to {:5e}".format(new_lr))
+            model_trainer.opt = optim.SGD(model_trainer.model.parameters(), lr=new_lr, momentum=mom, weight_decay=wd)

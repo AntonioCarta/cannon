@@ -82,12 +82,13 @@ def test_trial(foo, k, epsilon=1.e-6):
     assert mean_err < epsilon
 
 
-def lock_gpu(gpu_id):
+def lock_gpu(gpu_id, ngb=10):
     """
         Allocates some memory and lock a GPU waiting user input. Only useful to reserve GPU memory
         if Tensorflow is not behaving properly.
     """
-    GB = 10 ** 9
+    GB = ngb * (10 ** 9)
     a = torch.zeros(GB)
     a.cuda(gpu_id)
+    print("GPU {} is currenytly locked. Allocated {} GB.".format(gpu_id, ngb))
     input()
