@@ -5,6 +5,9 @@ from cannon.utils import cuda_move
 import random
 import torch.nn.functional as F
 import torch.optim as optim
+import os
+from matplotlib import pyplot as plt
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 
 try:
@@ -136,15 +139,56 @@ class LRDecayCallback(TrainingCallback):
     Attributes:
         decay_rate (float): multiplicative factor used to compute the new lr. must be < 1.
     """
-    def __init__(self, decay_rate=0.9):
+    def __init__(self, decay_rate):
+        super().__init__()
+        self.scheduler = None
         self.decay_rate = decay_rate
+        self.prev_lr = None
+
+    def before_training(self, model_trainer):
+        assert type(model_trainer.opt) == torch.optim.SGD
+        self.scheduler = ReduceLROnPlateau(model_trainer.opt, 'min', factor=self.decay_rate, verbose=False)
+        self.prev_lr = model_trainer.opt.param_groups[0]['lr']
 
     def after_epoch(self, model_trainer, train_data, validation_data):
-        if model_trainer.global_step % model_trainer.validation_steps == 0 and \
-                len(model_trainer.train_losses) >= 2 and \
-                model_trainer.train_losses[-1] > model_trainer.train_losses[-2]:
-            wd = model_trainer.opt.param_groups[0]['weight_decay']
-            mom = model_trainer.opt.param_groups[0]['momentum']
-            new_lr = model_trainer.opt.param_groups[0]['lr'] * self.decay_rate
+        curr_val_loss = model_trainer.val_losses[-1]
+        self.scheduler.step(curr_val_loss)
+        new_lr = model_trainer.opt.param_groups[0]['lr']
+        if self.prev_lr > new_lr:
+            self.prev_lr = new_lr
             model_trainer.logger.info("learning rate decreased to {:5e}".format(new_lr))
-            model_trainer.opt = optim.SGD(model_trainer.model.parameters(), lr=new_lr, momentum=mom, weight_decay=wd)
+
+    def __str__(self):
+        return "LRDecayCallback(decay_rate={}))".format(self.decay_rate)
+
+
+class LearningCurveCallback(TrainingCallback):
+    """
+        Plot the learning curve for train/validation sets loss and metric and stores it into the log_dir folder.
+    """
+    def after_epoch(self, model_trainer, train_data, validation_data):
+        plot_dir = model_trainer.log_dir + 'plots/'
+        os.makedirs(plot_dir, exist_ok=True)
+
+        fig, ax = plt.subplots()
+        ax.plot(model_trainer.train_losses, label='train')
+        ax.plot(model_trainer.val_losses, label='valid')
+        ax.set_title("Loss")
+        ax.set_xlabel("#epochs")
+        ax.set_xlabel("loss")
+        ax.legend()
+        fig.savefig(plot_dir + 'lc_loss.png')
+        plt.close(fig)
+
+        fig, ax = plt.subplots()
+        ax.plot(model_trainer.train_metrics, label='train')
+        ax.plot(model_trainer.val_metrics, label='valid')
+        ax.set_title("Metric")
+        ax.set_xlabel("#epochs")
+        ax.set_xlabel("metric")
+        ax.legend()
+        fig.savefig(plot_dir + 'lc_metric.png')
+        plt.close(fig)
+
+    def __str__(self):
+        return "LearningCurveCallback"
