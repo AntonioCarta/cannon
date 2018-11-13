@@ -1,7 +1,6 @@
 import os
 import pickle
 
-import numpy as np
 import torch
 
 from .experiment import Experiment, Config
@@ -29,7 +28,6 @@ class LMTRainingConfig(Config):
 
 
 SerializableParameter = namedtuple('SerializableParameter', ['name', 'value'])
-# PLTConfig = namedtuple('PLTConfig', ['model_params', 'train_params', 'train_data', 'val_data'])
 TrainerConfig = namedtuple('TrainerConfig', ['batch_size', 'n_epochs', 'callbacks', 'patience', 'l2_loss', 'verbose'])
 
 
@@ -67,52 +65,75 @@ def build_default_logger(log_dir):
     return default_logger
 
 
+def json_save_dict(obj_dict, file_name):
+    def json_save_fp(d, fp, indent=0):
+        ind = '\t' * indent
+        fp.write('{\n')
+        for k, v in d.items():
+            if type(v) is dict:
+                fp.write(ind + '\t"{}": '.format(k))
+                json_save_fp(v, fp, indent + 1)
+            elif type(v) is list:
+                fp.write(ind + '\t"{}": [\n'.format(k))
+                for el in v:
+                    fp.write(ind + '\t\t{},\n'.format(el))
+                fp.write(ind + '\t]\n')
+            else:
+                fp.write(ind + '\t"{}": {},\n'.format(k, v))
+        fp.write(ind + '},\n')
+
+    with open(file_name, 'w') as f:
+        json_save_fp(obj_dict, f)
+
+
 class ParamListTrainer(Experiment):
-    def __init__(self, log_dir, model_class, resume_ok=True, catch_errors=True):
-        self.catch_errors = catch_errors
+    def __init__(self, log_dir, model_class, trainer_class, resume_ok=True):
         self.results = []
         super().__init__(log_dir, resume_ok=resume_ok)
         self._model_class = model_class
+        self._trainer_class = trainer_class
 
     def save_checkpoint(self, config):
         # TODO: correct resume to working with model_pars x train_pars product
         d = {'results': self.results, 'param_list': config.model_params}
         with open(self.log_dir + 'checkpoint.pickle', 'wb') as f:
             pickle.dump(d, f)
+        json_save_dict(d, self.log_dir + 'checkpoint.json')
 
     def foo(self, config: PLTConfig):
         self.results = []
         self.experiment_log.info("Starting to train with {} different configurations.".format(len(config.model_params)))
         self.experiment_log.info("{}".format(config.train_params))
+
         start_i = 0
         if self.resume_ok:
             self.load_checkpoint()
             if len(self.results) > 0:
-                self.experiment_log.info("Resuming experiment from configuration {}.".format(len(config.model_params)))
-                start_i = len(config.model_params)
+                self.experiment_log.info("Resuming experiment from configuration {}.".format(len(self.results)))
+                start_i = len(self.results)
 
-        for i, (model_par, train_par) in enumerate(product(config.model_params, config.train_params)):
+        model_train_prod = list(product(config.model_params, config.train_params))
+        for i, (model_par, train_par) in enumerate(model_train_prod[start_i:]):
             self.experiment_log.info("Model parameters: {}".format(model_par))
             self.experiment_log.info("Train parameters: {}".format(train_par))
             train_log_dir = self.log_dir + 'k_{}/'.format(i)
             os.makedirs(train_log_dir, exist_ok=True)
 
-            model_trainer = self._model_class(model_par, **train_par, log_dir=train_log_dir)
-            if self.catch_errors:
-                try:
-                    model_trainer.fit(config.train_data, config.val_data)
-                    res = model_trainer.best_result
-                except Exception as e:
-                   self.experiment_log.error("training configuration failed with error: {}".format(e))
-                   res = { 'tr_loss': np.NaN, 'tr_acc': np.NaN, 'vl_loss': np.NaN, 'vl_acc': np.NaN }
-            else:
-                model_trainer.fit(config.train_data, config.val_data)
-                res = model_trainer.best_result
+            model = self._model_class(**model_par)
+            trainer = self._trainer_class(model=model, **train_par, log_dir=train_log_dir)
+            # try:
+            #     model_trainer.fit(config.train_data, config.val_data)
+            #     res = model_trainer.best_result
+            # except Exception as e:
+            #     self.experiment_log.error("training configuration failed with error: {}".format(e))
+            #     res = { 'tr_loss': np.NaN, 'tr_acc': np.NaN, 'vl_loss': np.NaN, 'vl_acc': np.NaN }
+            trainer.fit(config.train_data, config.val_data)
+            res = trainer.best_result
 
             self.results.append(res)
             self.save_checkpoint(config)
-            self.experiment_log.info("TR error {}, ACC {}".format(res['tr_loss'], res['tr_acc']))
-            self.experiment_log.info("VL error {}, ACC {}".format(res['vl_loss'], res['vl_acc']))
+            self.experiment_log.info("TR loss: {}, metric: {}".format(res['tr_loss'], res['tr_acc']))
+            self.experiment_log.info("VL loss: {}, metric: {}".format(res['vl_loss'], res['vl_acc']))
 
     def load_checkpoint(self):
         if os.path.exists(self.log_dir + 'checkpoint.pickle'):
@@ -124,7 +145,7 @@ class ParamListTrainer(Experiment):
 
 class TorchTrainer:
     def __init__(self, model: nn.Module, batch_size: int, n_epochs: int, log_dir: str,
-                 callbacks=None, patience: int=50, verbose=True, logger=None, validation_steps=10):
+                 callbacks=None, patience: int=50, verbose=True, logger=None, validation_steps=1):
         self.model = cuda_move(model)
         self.batch_size = batch_size
         self.n_epochs = n_epochs
@@ -148,7 +169,7 @@ class TorchTrainer:
         self.train_metrics = []
         self.val_metrics = []
         self.best_result = {}
-        self.best_vl_metric = -np.inf
+        self.best_vl_metric = -1e15
         self.best_epoch = 0
         self.global_step = -1
 
@@ -156,7 +177,8 @@ class TorchTrainer:
         return {
             'batch_size': self.batch_size,
             'n_epochs': self.n_epochs,
-            'patience': self.patience
+            'patience': self.patience,
+            'callbacks': self.callbacks
         }
 
     def validate(self, e, train_data, val_data):
@@ -185,7 +207,7 @@ class TorchTrainer:
         for e in range(self.n_epochs):
             self.global_step = e
             self.fit_epoch(train_data)
-            # Validation every 10 epoch
+
             if e % self.validation_steps == 0:
                 self.validate(e, train_data, validation_data)
                 self.save_checkpoint(e)
@@ -193,8 +215,9 @@ class TorchTrainer:
             for cb in self.callbacks:
                 cb.after_epoch(self, train_data, validation_data)
 
-            # Early stopping
             if self.best_vl_metric >= self.val_metrics[-1] and e - self.best_epoch > self.patience:
+                # print("self.best_vl_metric({}) >= self.val_metrics[-1]({}) and e({}) - self.best_epoch({})> self.patience({})"
+                #       .format(self.best_vl_metric, self.val_metrics[-1], e, self.best_epoch, self.patience))
                 self.logger.info("Early stopping at epoch {}".format(e))
                 break
 
@@ -202,7 +225,6 @@ class TorchTrainer:
         self.save_checkpoint(e)
         for cb in self.callbacks:
             cb.after_training(self)
-        self.logger.info("Training completed.")
         return self.train_losses, self.val_losses
 
     def save_checkpoint(self, e):
@@ -217,20 +239,12 @@ class TorchTrainer:
             self.best_vl_metric = self.val_metrics[-1]
             self.best_epoch = e
             torch.save(self.model, self.log_dir + 'best_model.pt')
-        train_params = {
-            'batch_size': self.batch_size,
-            'n_epochs': self.n_epochs,
-            'patience': self.patience
-        }
+
+        train_params = self.train_dict()
         for p in self.serializable_params:
             train_params[p.name] = p.value
-
-        pd = None
-        if hasattr(self.model, 'params_dict'):
-            pd = self.model.params_dict()
-
         d = {
-            'model_params': pd,
+            'model_params': self.model.params_dict(),
             'train_params': train_params,
             'best_result': self.best_result,
             'tr_loss': self.train_losses,
@@ -238,8 +252,13 @@ class TorchTrainer:
             'tr_accs': self.train_metrics,
             'vl_accs': self.val_metrics
         }
+
+        # save pickle heckpoint
         with open(self.log_dir + 'checkpoint.pickle', 'wb') as f:
             pickle.dump(d, f)
+
+        # save JSON checkpoint
+        json_save_dict(d, self.log_dir + 'checkpoint.json')
 
     def __str__(self):
         s = self.__class__.__name__ + ': '
