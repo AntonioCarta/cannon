@@ -14,6 +14,7 @@ class Experiment:
         :param log_dir: directory to save the experiment's output.
         :param resume_ok: if True an partially completed experiment can be resumed.
         """
+        os.makedirs(log_dir, exist_ok=True)
         self.log_dir = log_dir
         self.resume_ok = resume_ok
 

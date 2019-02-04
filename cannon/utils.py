@@ -44,8 +44,9 @@ def gradient_clipping(model, clip=1):
         try:
             p.grad.data.clamp_(min=-clip, max=clip)
         except AttributeError as e:
-            print("Parameter {} has no gradient.".format(name))
-            raise e
+            # print("Parameter {} has no gradient.".format(name))
+            # raise e
+            pass
 
 
 def cosine_similarity(x1: Variable, x2: Variable, dim: int=1, eps=1e-8) -> Variable:

@@ -9,6 +9,7 @@ import logging
 import torch.nn as nn
 from collections import namedtuple
 from itertools import product
+from logging import Logger
 
 
 class LMTRainingConfig(Config):
@@ -45,8 +46,8 @@ class PLTConfig(Config):
         return str(d)
 
 
-def build_default_logger(log_dir):
-    default_logger = logging.getLogger(log_dir + '_' + 'log_output')
+def build_default_logger(log_dir : str) -> Logger:
+    default_logger : Logger = logging.getLogger(log_dir + '_' + 'log_output')
     default_logger.setLevel(logging.DEBUG)
 
     # log to output file
@@ -144,10 +145,9 @@ class ParamListTrainer(Experiment):
 
 
 class TorchTrainer:
-    def __init__(self, model: nn.Module, batch_size: int, n_epochs: int, log_dir: str,
+    def __init__(self, model: nn.Module, n_epochs: int=100, log_dir: str=None,
                  callbacks=None, patience: int=50, verbose=True, logger=None, validation_steps=1):
         self.model = cuda_move(model)
-        self.batch_size = batch_size
         self.n_epochs = n_epochs
         self.log_dir = log_dir
         self.verbose = verbose
@@ -157,6 +157,7 @@ class TorchTrainer:
         self.logger = logger
         self.serializable_params = []
         self.validation_steps = validation_steps
+        os.makedirs(log_dir, exist_ok=True)
         if logger is None:
             self.logger = build_default_logger(log_dir)
 
@@ -175,7 +176,6 @@ class TorchTrainer:
 
     def train_dict(self):
         return {
-            'batch_size': self.batch_size,
             'n_epochs': self.n_epochs,
             'patience': self.patience,
             'callbacks': self.callbacks
@@ -253,9 +253,12 @@ class TorchTrainer:
             'vl_accs': self.val_metrics
         }
 
-        # save pickle heckpoint
-        with open(self.log_dir + 'checkpoint.pickle', 'wb') as f:
-            pickle.dump(d, f)
+        # save pickle checkpoint (if possible)
+        try:
+            with open(self.log_dir + 'checkpoint.pickle', 'wb') as f:
+                pickle.dump(d, f)
+        except:
+            pass
 
         # save JSON checkpoint
         json_save_dict(d, self.log_dir + 'checkpoint.json')

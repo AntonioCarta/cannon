@@ -6,7 +6,9 @@ import random
 import torch.nn.functional as F
 import torch.optim as optim
 import os
-from matplotlib import pyplot as plt
+import matplotlib.pyplot as plt
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_agg import FigureCanvasAgg
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 
@@ -170,23 +172,29 @@ class LearningCurveCallback(TrainingCallback):
         plot_dir = model_trainer.log_dir + 'plots/'
         os.makedirs(plot_dir, exist_ok=True)
 
-        fig, ax = plt.subplots()
+        fig = Figure()
+        ax = fig.add_subplot(111)
         ax.plot(model_trainer.train_losses, label='train')
         ax.plot(model_trainer.val_losses, label='valid')
         ax.set_title("Loss")
         ax.set_xlabel("#epochs")
         ax.set_xlabel("loss")
         ax.legend()
+        canvas = FigureCanvasAgg(fig)
+        canvas.print_figure('fig')
         fig.savefig(plot_dir + 'lc_loss.png')
         plt.close(fig)
 
-        fig, ax = plt.subplots()
+        fig = Figure()
+        ax = fig.add_subplot(111)
         ax.plot(model_trainer.train_metrics, label='train')
         ax.plot(model_trainer.val_metrics, label='valid')
         ax.set_title("Metric")
         ax.set_xlabel("#epochs")
         ax.set_xlabel("metric")
         ax.legend()
+        canvas = FigureCanvasAgg(fig)
+        canvas.print_figure('fig')
         fig.savefig(plot_dir + 'lc_metric.png')
         plt.close(fig)
 
