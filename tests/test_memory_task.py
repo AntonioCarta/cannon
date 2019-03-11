@@ -1,4 +1,11 @@
+from cannon.tasks import CopyTask, AdditionTask
+from cannon.utils import set_gpu, set_allow_cuda
+import torch
+set_gpu()
+
+
 def test_copy():
+    set_allow_cuda(False)
     S, T, K = 10, 5, 2
     batch_size = 3
     data = CopyTask(S, T, K)

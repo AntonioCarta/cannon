@@ -1,11 +1,9 @@
-import sys
-sys.path.append('./cannon')
-from tasks import PianoRollData
+from cannon.tasks import PianoRollData
 import torch
 
 
 def test_piano_roll():
-    train_dataset = PianoRollData('../linear-memory/data/MIDI/piano-roll/JSB Chorales.pickle', 'train')
+    train_dataset = PianoRollData('../../data/midi/jsb_chorales.pickle', 'train')
     # test one_hot_list generator
     print("test data loader")
     for song_x, song_y in train_dataset.get_one_hot_list():
@@ -22,7 +20,7 @@ def test_piano_roll():
 
 
 def test_masking():
-    train_dataset = PianoRollData('../linear-memory/data/MIDI/piano-roll/JSB Chorales.pickle', 'train')
+    train_dataset = PianoRollData('../../data/midi/jsb_chorales.pickle', 'train')
     batch_size = 32
     X_train, y_train, masks = train_dataset.get_data()
     print("test masking")

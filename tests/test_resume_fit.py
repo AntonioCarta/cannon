@@ -1,8 +1,10 @@
 import os
 from cannon.torch_model import TorchTrainer
-from cannon.utils import cuda_move
+from cannon.utils import cuda_move, set_gpu
 import torch
 from torch import nn
+
+set_gpu()
 
 
 class MockTrainer(TorchTrainer):
@@ -18,6 +20,9 @@ class MockTrainer(TorchTrainer):
 
     def _init_training(self, train_data, val_data):
         pass
+
+    def train_dict(self):
+        return {}
 
 
 class MockModel(nn.Module):
