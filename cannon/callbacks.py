@@ -43,7 +43,7 @@ def save_training_checkpoint(self, e):
         self.best_vl_metric = self.val_accs[-1]
         self.best_epoch = e
         torch.save(self.model, self.log_dir + 'best_model.pt')
-    train_params = self.train_dict()
+    train_params = self._train_dict()
     d = {
         'model_params': self.model.params_dict(),
         'train_params': train_params,
@@ -200,3 +200,46 @@ class LearningCurveCallback(TrainingCallback):
 
     def __str__(self):
         return "LearningCurveCallback"
+
+
+class EarlyStoppingCallback(TrainingCallback):
+    def __init__(self, patience):
+        super().__init__()
+        self.patience = patience
+        self._best_loss = -10 ** 9
+        self._best_epoch = 0
+
+    def before_training(self, model_trainer):
+        self._best_loss = -10 ** 9
+        self._best_epoch = 0
+
+    def after_epoch(self, model_trainer, train_data, validation_data):
+        e = model_trainer.global_step
+        if model_trainer.best_vl_metric >= model_trainer.val_metrics[-1] and \
+                e - model_trainer.best_epoch > self.patience:
+            model_trainer.logger.info("Early stopping at epoch {}".format(e))
+            model_trainer.stop_train()
+
+    def __str__(self):
+        return f"EarlyStoppingCallback(patience={self.patience})"
+
+
+class ModelCheckpoint(TrainingCallback):
+    def __init__(self, log_dir):
+        super().__init__()
+        self.log_dir = log_dir
+
+    def after_training(self, model_trainer):
+        pass
+
+    def after_epoch(self, model_trainer, train_data, validation_data):
+        try:
+            torch.save(model_trainer.model, self.log_dir + 'model_e.pt')
+        except Exception as err:
+            model_trainer.logger.debug(err)
+
+        if model_trainer.best_vl_metric < model_trainer.val_metrics[-1]:
+            try:
+                torch.save(model_trainer.model, self.log_dir + 'best_model.pt')
+            except Exception as err:
+                model_trainer.logger.debug(err)
