@@ -1,6 +1,15 @@
+import time
+
 import torch
 import numpy as np
 from torch.autograd import Variable
+
+ALLOW_CUDA = True  # Global variable to control cuda_move allocation behavior
+
+
+def set_allow_cuda(b):
+    global ALLOW_CUDA
+    ALLOW_CUDA = b
 
 
 def set_gpu():
@@ -23,6 +32,8 @@ def set_gpu():
 
 def cuda_move(args):
     """ Move a sequence of tensors to CUDA if the system supports it. """
+    if not ALLOW_CUDA:
+        return args
     b = torch.cuda.is_available()
     # for t in args:
     #     if b:
@@ -93,3 +104,16 @@ def lock_gpu(gpu_id, ngb=10):
     a.cuda(gpu_id)
     print("GPU {} is currenytly locked. Allocated {} GB.".format(gpu_id, ngb))
     input()
+
+
+def timeit(foo, n_trials):
+    times = []
+    for _ in range(n_trials):
+        start = time.time()
+        foo()
+        end = time.time()
+        t = end - start
+        times.append(t)
+    t_min = min(times)
+    t_mean = sum(times) / n_trials
+    print("min: {:.5f}, mean: {:.5f}, n_trials: {}".format(t_min, t_mean, n_trials))
