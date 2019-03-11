@@ -1,6 +1,7 @@
 import torch
 import torch.nn.functional as F
 import numpy as np
+from cannon.utils import cuda_move
 
 
 class CopyTask:
@@ -38,7 +39,7 @@ class CopyTask:
         input_seq = torch.cat([rand_seq, blank_T, blank_S], dim=0)
         input_seq[self.T + self.S - 1, :] = self.K + 1
         output_seq = torch.cat([blank_S, blank_T, rand_seq], dim=0)
-        return input_seq, output_seq
+        return cuda_move(input_seq), cuda_move(output_seq)
 
     def score(self, y_pred, y_target):
         assert y_pred.shape[-1] == self.K + 2
@@ -47,6 +48,16 @@ class CopyTask:
 
 class AdditionTask:
     def __init__(self, seq_len):
+        """
+        Dataset for the adding problem.
+        Each sequence element consists of two features:
+        - a number uniformly sampled from [0, 1)
+        - a binary marker. Exactly two positions (randomly sampled) are set to 1, while the others are set to 0
+        The output is a scalar value corresponding to the sum of the two elements with marker value equal to 1.
+
+        Args:
+            seq_len: length of the sequences
+        """
         self.seq_len = seq_len
 
     def get_batch(self, batch_size):
