@@ -10,6 +10,7 @@ import torch.nn as nn
 from collections import namedtuple
 from itertools import product
 from logging import Logger
+from .callbacks import EarlyStoppingCallback, LearningCurveCallback, ModelCheckpoint
 
 
 class LMTRainingConfig(Config):
@@ -26,10 +27,6 @@ class LMTRainingConfig(Config):
         d['train_data'] = str(self.train_data)
         d['val_data'] = str(self.val_data)
         return str(d)
-
-
-SerializableParameter = namedtuple('SerializableParameter', ['name', 'value'])
-TrainerConfig = namedtuple('TrainerConfig', ['batch_size', 'n_epochs', 'callbacks', 'patience', 'l2_loss', 'verbose'])
 
 
 class PLTConfig(Config):
@@ -146,23 +143,24 @@ class ParamListTrainer(Experiment):
 
 class TorchTrainer:
     def __init__(self, model: nn.Module, n_epochs: int=100, log_dir: str=None,
-                 callbacks=None, patience: int=50, verbose=True, logger=None, validation_steps=1):
+                 callbacks=None, patience: int=5000, verbose=True, logger=None, validation_steps=1):
         self.model = cuda_move(model)
         self.n_epochs = n_epochs
         self.log_dir = log_dir
         self.verbose = verbose
-        self.patience = patience
         self.callbacks = [] if callbacks is None else callbacks
+        self.callbacks.extend([
+            EarlyStoppingCallback(patience),
+            ModelCheckpoint(log_dir),
+            LearningCurveCallback()
+        ])
         self._init_fit_history()
         self.logger = logger
-        self.serializable_params = []
         self.validation_steps = validation_steps
+        self._stop_train = False
         os.makedirs(log_dir, exist_ok=True)
         if logger is None:
             self.logger = build_default_logger(log_dir)
-
-    def add_serializable_parameters(self, params):
-        self.serializable_params.extend(params)
 
     def _init_fit_history(self):
         self.train_losses = []
@@ -172,16 +170,19 @@ class TorchTrainer:
         self.best_result = {}
         self.best_vl_metric = -1e15
         self.best_epoch = 0
-        self.global_step = -1
+        self.global_step = 0
+        self._stop_train = False
 
-    def train_dict(self):
-        return {
+    def _train_dict(self):
+        a = self.train_dict()
+        b = {
             'n_epochs': self.n_epochs,
-            'patience': self.patience,
             'callbacks': self.callbacks
         }
+        return {**a, **b}
 
-    def validate(self, e, train_data, val_data):
+    def validate(self, train_data, val_data):
+        e = self.global_step
         me, acc = self.compute_metrics(train_data)
         self.train_losses.append(me)
         self.train_metrics.append(acc)
@@ -195,40 +196,66 @@ class TorchTrainer:
             self.logger.info("epoch %d VAL loss: %f" % (e + 1, me))
             self.logger.info("epoch %d VAL metric: %f\n" % (e + 1, acc))
 
+    def resume_fit(self, train_data, validation_data):
+        # load last model
+        device = f'cuda:{torch.cuda.current_device()}'
+        self.model = torch.load(self.log_dir + 'model_e.pt', device)
+
+        # load fit history
+        # init training variables
+        with open(self.log_dir + 'checkpoint.pickle', 'rb') as f:
+            d = pickle.load(f)
+
+        self.train_losses = d['tr_loss']
+        self.val_losses = d['vl_loss']
+        self.train_metrics = d['tr_accs']
+        self.val_metrics = d['vl_accs']
+
+        self.best_result = d['best_result']
+        self.best_vl_metric = d['best_result']['vl_acc']
+        self.best_epoch = None
+
+        self.global_step = len(self.train_losses)
+        self._stop_train = False
+
+        # call _fit
+        self._fit(train_data, validation_data)
+
     def fit(self, train_data, validation_data):
         self._init_fit_history()
         self._init_training(train_data, validation_data)
         self.logger.info("Starting training...")
         self.logger.info("Params: {}".format(str(self)))
-
         for cb in self.callbacks:
             cb.before_training(self)
+        self._fit(train_data, validation_data)  # training loop
 
-        for e in range(self.n_epochs):
+    def _fit(self, train_data, validation_data):
+        for e in range(self.global_step, self.n_epochs):
             self.global_step = e
             self.fit_epoch(train_data)
 
             if e % self.validation_steps == 0:
-                self.validate(e, train_data, validation_data)
+                self.validate(train_data, validation_data)
                 self.save_checkpoint(e)
 
             for cb in self.callbacks:
                 cb.after_epoch(self, train_data, validation_data)
 
-            if self.best_vl_metric >= self.val_metrics[-1] and e - self.best_epoch > self.patience:
-                # print("self.best_vl_metric({}) >= self.val_metrics[-1]({}) and e({}) - self.best_epoch({})> self.patience({})"
-                #       .format(self.best_vl_metric, self.val_metrics[-1], e, self.best_epoch, self.patience))
-                self.logger.info("Early stopping at epoch {}".format(e))
+            if self._stop_train:
+                self.logger.info(f"Training stopped at epoch {e + 1}")
                 break
 
-        self.validate(e, train_data, validation_data)
+        self.validate(train_data, validation_data)
         self.save_checkpoint(e)
         for cb in self.callbacks:
             cb.after_training(self)
         return self.train_losses, self.val_losses
 
+    def stop_train(self):
+        self._stop_train = True
+
     def save_checkpoint(self, e):
-        torch.save(self.model, self.log_dir + 'model_e.pt')
         if self.best_vl_metric < self.val_metrics[-1]:
             self.best_result = {
                 'tr_loss': self.train_losses[-1],
@@ -238,11 +265,8 @@ class TorchTrainer:
             }
             self.best_vl_metric = self.val_metrics[-1]
             self.best_epoch = e
-            torch.save(self.model, self.log_dir + 'best_model.pt')
 
-        train_params = self.train_dict()
-        for p in self.serializable_params:
-            train_params[p.name] = p.value
+        train_params = self._train_dict()
         d = {
             'model_params': self.model.params_dict(),
             'train_params': train_params,
@@ -264,11 +288,11 @@ class TorchTrainer:
         json_save_dict(d, self.log_dir + 'checkpoint.json')
 
     def __str__(self):
-        s = self.__class__.__name__ + ': '
-        # s += json.dumps(self.__dict__)
-        for par in self.serializable_params:
-            s += par.name + ' ' + str(par.value) + ', '
+        s = self.__class__.__name__
         return s
+
+    def train_dict(self):
+        raise NotImplementedError
 
     def compute_metrics(self, data):
         raise NotImplementedError
