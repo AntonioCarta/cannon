@@ -15,7 +15,7 @@ def _create_data(batch_size, k, n):
 
 
 def test_la_piano_midi():
-    f_data = '../../data/midi/jsb_chorales.pickle'
+    f_data = '../data/midi/jsb_chorales.pickle'
     data = PianoRollData(f_data, key='train')
     t_max = 20
     n = 80

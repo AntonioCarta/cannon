@@ -21,7 +21,7 @@ def test_copy():
     for t in range(2*S + T):
         for b in range(batch_size):
             out[t, b, mask[t, b]] = 10**9
-    loss = data.score(out, y)
+    loss = data.loss_score(out, y)
     assert loss == 0.0
 
 
@@ -38,7 +38,7 @@ def test_addition():
 
     # optimal solution has zero error
     out = (x[:, :, 0] * x[:, :, 1]).sum(dim=0).reshape(batch_size, 1)
-    assert data.score(out, y) == 0.0
+    assert data.loss_score(out, y) == 0.0
 
 
 if __name__ == '__main__':
