@@ -18,10 +18,11 @@ from torch.jit import Tensor
 
 
 class LinearMemoryNetwork(jit.ScriptModule):
-    __constants__ = ['memory_size']
+    __constants__ = ['memory_size', 'out_hidden']
 
-    def __init__(self, in_size, hidden_size, memory_size, act=torch.tanh):
+    def __init__(self, in_size, hidden_size, memory_size, act=torch.tanh, out_hidden=False):
         super().__init__()
+        self.out_hidden = out_hidden
         self.memory_size = memory_size
         self.act = act
         self.Wxh = nn.Parameter(0.01 * torch.randn(hidden_size, in_size))
@@ -40,7 +41,8 @@ class LinearMemoryNetwork(jit.ScriptModule):
         assert len(x_prev.shape) == 2
         h_curr = self.act(torch.mm(x_prev, self.Wxh.t()) + torch.mm(m_prev, self.Wmh.t())+ self.bh)
         m_curr = torch.mm(h_curr, self.Whm.t()) + torch.mm(m_prev, self.Wmm.t()) + self.bm
-        return m_curr, h_curr
+        out = h_curr if self.out_hidden else m_curr
+        return out, m_curr
 
 
 class LMNLayer(jit.ScriptModule):
@@ -59,8 +61,8 @@ class LMNLayer(jit.ScriptModule):
         x = x.unbind(0)
         for t in range(len(x)):
             xt = x[t]
-            m_prev, _ = self.layer(xt, m_prev)
-            out.append(m_prev)
+            h_prev, m_prev = self.layer(xt, m_prev)
+            out.append(h_prev)
         return torch.stack(out), m_prev
 
 
