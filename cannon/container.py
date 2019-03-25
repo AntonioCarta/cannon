@@ -32,6 +32,6 @@ class SequenceClassifier(jit.ScriptModule):
     @jit.script_method
     def forward(self, x):
         h0 = self.rnn.init_hidden(x.shape[1])
-        h_last = self.rnn(x, h0)[1]
+        h_last = self.rnn(x, h0)[0][-1]
         y = torch.mm(h_last, self.Wo.t()) + self.bo
         return y
