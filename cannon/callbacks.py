@@ -140,6 +140,18 @@ class TBCallback(TrainingCallback):
         return "TBCallback(logdir={})".format(self.log_dir)
 
 
+class SampleVisualizer(TrainingCallback):
+    def __init__(self):
+        super().__init__()
+
+    def after_epoch(self, model_trainer, train_data, validation_data):
+        for xi, yi in validation_data.iter():
+            y_pred = model_trainer.model(xi)
+            break
+        sample_str = validation_data.visualize_sample(xi[:, 0], y_pred[0])
+        model_trainer.logger.info(f"model output  sample: \n{sample_str}")
+
+
 class LRDecayCallback(TrainingCallback):
     """ Periodically reduce the learning rate if the validation performance is not improving.
     The optimizer used by the trainer must be torch.optim.SGD.
