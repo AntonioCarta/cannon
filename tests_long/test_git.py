@@ -1,7 +1,7 @@
 import sys
 sys.path.append('..')
 
-from cannon.git_controller import GitController
+from cannon.tools.git_controller import GitController
 
 
 if __name__ == '__main__':

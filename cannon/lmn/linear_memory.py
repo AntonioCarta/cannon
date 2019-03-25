@@ -5,7 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from ..utils import cuda_move
 from ..callbacks import TBCallback
-from ..nn_utils import selu
+from ..functional import selu
 
 
 class SeLULinearMemory(nn.Module):

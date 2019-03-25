@@ -92,5 +92,5 @@ class AdditionTask:
         y = torch.sum(rand_nums * rand_markers, dim=0).reshape(batch_size, 1)
         return x, y
 
-    def score(self, y_pred, y_target):
+    def loss_score(self, y_pred, y_target):
         return F.mse_loss(y_pred, y_target)

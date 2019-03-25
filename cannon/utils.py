@@ -6,6 +6,8 @@ from torch.autograd import Variable
 import functools
 import inspect
 import warnings
+import os
+import pickle
 
 ALLOW_CUDA = True  # Global variable to control cuda_move allocation behavior
 
@@ -169,3 +171,23 @@ def timeit(foo, n_trials):
     t_min = min(times)
     t_mean = sum(times) / n_trials
     print("min: {:.5f}, mean: {:.5f}, n_trials: {}".format(t_min, t_mean, n_trials))
+
+
+def load_dir_results(log_dir):
+    print(f"Reporting results in {log_dir}")
+    res = []
+    for file in os.scandir(log_dir):
+        if os.path.isdir(file):
+            log_file = log_dir + file.name + '/checkpoint.pickle'
+
+            try:
+                with open(log_file, 'rb') as f:
+                    d = pickle.load(f)
+                    best_result = d['best_result']
+                    train_par = d['train_params']
+                    # model_par = d['model_params']
+
+                res.append((best_result, train_par)) #, model_par))
+            except EOFError:
+                print(f"could not open {log_file}")
+    return res
