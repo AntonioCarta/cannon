@@ -4,12 +4,13 @@ from torch.autograd import Variable
 from cannon.utils import cuda_move
 import random
 import torch.nn.functional as F
-import torch.optim as optim
 import os
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from torch.optim.lr_scheduler import ReduceLROnPlateau
+import json
+from comet_ml import Experiment
 
 
 try:
@@ -24,12 +25,17 @@ class TrainingCallback:
     def before_training(self, model_trainer):
         pass
 
-    def after_training(self, model_trainer):
-        pass
-
     def after_epoch(self, model_trainer, train_data, validation_data):
         pass
 
+    def after_train_before_validate(self, model_trainer):
+        pass
+
+    def after_training(self, model_trainer):
+        pass
+
+    def after_training_interrupted(self, model_trainer):
+        pass
 
 def save_training_checkpoint(self, e):
     torch.save(self.model, self.log_dir + 'model_e.pt')
@@ -199,7 +205,7 @@ class LearningCurveCallback(TrainingCallback):
         plt.close(fig)
 
     def __str__(self):
-        return "LearningCurveCallback"
+        return "LearningCurveCallback(TrainingCallback)"
 
 
 class EarlyStoppingCallback(TrainingCallback):
@@ -229,17 +235,78 @@ class ModelCheckpoint(TrainingCallback):
         super().__init__()
         self.log_dir = log_dir
 
-    def after_training(self, model_trainer):
-        pass
+    def after_train_before_validate(self, model_trainer):
+        model_name = self.log_dir + 'best_model'
+        if os.path.isfile(model_name + '.pt'):
+            device = f'cuda:{torch.cuda.current_device()}'
+            model_trainer.model = torch.load(model_name + '.pt', device)
+            model_trainer.logger.info("Loaded best model checkpoint before final validation.")
+        elif os.path.isfile(model_name + '.ptj'):
+            device = f'cuda:{torch.cuda.current_device()}'
+            model_trainer.model = torch.jit.load(model_name + '.ptj', device)
+            model_trainer.logger.info("Loaded best model checkpoint before final validation.")
 
     def after_epoch(self, model_trainer, train_data, validation_data):
+        def try_save(model_name):
+            if isinstance(model_trainer.model, torch.jit.ScriptModule):
+                # ScriptModule should be checked first because it is a subclass of nn.Module.
+                model_trainer.model.save(model_name + '.ptj')
+            elif isinstance(model_trainer.model, torch.nn.Module):
+                torch.save(model_trainer.model, model_name + '.pt')
+            else:
+                raise TypeError("Unrecognized model type. Cannot serialize.")
+
         try:
-            torch.save(model_trainer.model, self.log_dir + 'model_e.pt')
+            try_save(self.log_dir + 'model_e')
+            if model_trainer.val_metrics[-1] == max(model_trainer.val_metrics):
+                try_save(self.log_dir + 'best_model')
         except Exception as err:
             model_trainer.logger.debug(err)
 
-        if model_trainer.best_vl_metric < model_trainer.val_metrics[-1]:
-            try:
-                torch.save(model_trainer.model, self.log_dir + 'best_model.pt')
-            except Exception as err:
-                model_trainer.logger.debug(err)
+    def __str__(self):
+        return f"ModelCheckpoint(TrainingCallback)"
+
+
+class CometCallback(TrainingCallback):
+    def __init__(self, config_file, tag_list):
+        self.tag_list = tag_list
+        super().__init__()
+        with open(config_file, 'r') as f:
+            comet_config = json.load(f)
+        comet_exp = Experiment(**comet_config)
+        for tag in tag_list:
+            comet_exp.add_tag(tag)
+        self.exp = comet_exp
+
+    def before_training(self, model_trainer):
+        def flatten_dict(d, prefix=''):
+            new = {}
+            for k,v in d.items():
+                if type(v) is dict:
+                    new_prefix = prefix + k + '_'
+                    flat_v = flatten_dict(v, prefix=new_prefix)
+                    new = {**new, **flat_v}
+                else:
+                    new[prefix + k] = v
+            return new
+        flat_d = flatten_dict(model_trainer._hyperparams_dict)
+        self.exp.log_parameters(flat_d)
+
+    def after_training(self, model_trainer):
+        self.exp.end()
+
+    def after_epoch(self, model_trainer, train_data, validation_data):
+        self.exp.log_epoch_end(model_trainer.global_step)
+        with self.exp.train():
+            self.exp.log_metric("loss", model_trainer.train_losses[-1], model_trainer.global_step)
+            self.exp.log_metric("metric", model_trainer.train_metrics[-1], model_trainer.global_step)
+        with self.exp.validate():
+            self.exp.log_metric("loss", model_trainer.val_losses[-1], model_trainer.global_step)
+            self.exp.log_metric("metric", model_trainer.val_metrics[-1], model_trainer.global_step)
+
+    def after_training_interrupted(self, model_trainer):
+        self.exp.add_tag('keyboard_interrupted')
+
+    def __str__(self):
+        str_tags = ", ".join(self.tag_list)
+        return f"CometCallback({str_tags})"
