@@ -31,6 +31,16 @@ class CopyTask:
         self.T = T
         self.K = K
 
+    @property
+    def input_shape(self):
+        """ Input shape. If batch is not set by the class, it is set to 1. """
+        return 2 * self.S + self.T, 1
+
+    @property
+    def output_shape(self):
+        """ Output shape. If batch is not set by the class, it is set to 1. """
+        return 2 * self.S + self.T, 1, self.K + 2
+
     def get_batch(self, batch_size):
         rand_seq = torch.randint(0, self.K, (self.S, batch_size)).long()
         blank_T = self.K * torch.ones((self.T, batch_size)).long()
@@ -41,9 +51,17 @@ class CopyTask:
         output_seq = torch.cat([blank_S, blank_T, rand_seq], dim=0)
         return cuda_move(input_seq), cuda_move(output_seq)
 
-    def score(self, y_pred, y_target):
+    def loss_score(self, y_pred, y_target):
         assert y_pred.shape[-1] == self.K + 2
         return F.cross_entropy(y_pred.reshape(-1, self.K + 2), y_target.reshape(-1))
+
+    def metric_score(self, y_pred, y_target):
+        return (y_pred.argmax(dim=2) == y_target).float().mean()
+
+    def visualize_sample(self, x, y):
+        str_x = " in:" + "".join(str(el) for el in x.tolist())
+        str_y = "out:" + "".join(str(el) for el in y.argmax(dim=1).tolist())
+        return str_x + '\n' + str_y
 
 
 class AdditionTask:
