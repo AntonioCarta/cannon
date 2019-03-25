@@ -11,6 +11,8 @@ from collections import namedtuple
 from itertools import product
 from logging import Logger
 from .callbacks import EarlyStoppingCallback, LearningCurveCallback, ModelCheckpoint
+from .utils import deprecated
+import json
 
 
 class LMTRainingConfig(Config):
@@ -63,6 +65,7 @@ def build_default_logger(log_dir : str) -> Logger:
     return default_logger
 
 
+@deprecated("use python json module with json.dump(d, f, indent=4, default=lambda x: str(x)).")
 def json_save_dict(obj_dict, file_name):
     def json_save_fp(d, fp, indent=0):
         ind = '\t' * indent
@@ -159,6 +162,10 @@ class TorchTrainer:
         self.validation_steps = validation_steps
         self._stop_train = False
         os.makedirs(log_dir, exist_ok=True)
+        self._hyperparams_dict = {
+            'n_epochs': self.n_epochs,
+            'callbacks': self.callbacks,
+        }
         if logger is None:
             self.logger = build_default_logger(log_dir)
 
@@ -173,13 +180,8 @@ class TorchTrainer:
         self.global_step = 0
         self._stop_train = False
 
-    def _train_dict(self):
-        a = self.train_dict()
-        b = {
-            'n_epochs': self.n_epochs,
-            'callbacks': self.callbacks
-        }
-        return {**a, **b}
+    def append_hyperparam_dict(self, d):
+        self._hyperparams_dict = {**self._hyperparams_dict, **d}
 
     def validate(self, train_data, val_data):
         e = self.global_step
@@ -225,10 +227,17 @@ class TorchTrainer:
         self._init_fit_history()
         self._init_training(train_data, validation_data)
         self.logger.info("Starting training...")
-        self.logger.info("Params: {}".format(str(self)))
+        self.logger.info("Params: {}".format(self._hyperparams_dict))
         for cb in self.callbacks:
             cb.before_training(self)
-        self._fit(train_data, validation_data)  # training loop
+
+        try:
+            self._fit(train_data, validation_data)  # training loop
+        except KeyboardInterrupt:
+            self.logger.info("Training stopped due to keyboard interrupt.")
+            for cb in self.callbacks:
+                cb.after_training_interrupted(self)
+            raise KeyboardInterrupt()
 
     def _fit(self, train_data, validation_data):
         for e in range(self.global_step, self.n_epochs):
@@ -245,7 +254,10 @@ class TorchTrainer:
             if self._stop_train:
                 self.logger.info(f"Training stopped at epoch {e + 1}")
                 break
-
+        # TODO: load best model before final validation (inside ModelCheckpoint callback)?
+        for cb in self.callbacks:
+            cb.after_train_before_validate(self)
+        self.logger.info("Final Training Results:")
         self.validate(train_data, validation_data)
         self.save_checkpoint(e)
         for cb in self.callbacks:
@@ -266,10 +278,8 @@ class TorchTrainer:
             self.best_vl_metric = self.val_metrics[-1]
             self.best_epoch = e
 
-        train_params = self._train_dict()
         d = {
-            'model_params': self.model.params_dict(),
-            'train_params': train_params,
+            'train_params': self._hyperparams_dict,
             'best_result': self.best_result,
             'tr_loss': self.train_losses,
             'vl_loss': self.val_losses,
@@ -281,18 +291,19 @@ class TorchTrainer:
         try:
             with open(self.log_dir + 'checkpoint.pickle', 'wb') as f:
                 pickle.dump(d, f)
-        except:
-            pass
-
+        except pickle.PickleError as e:
+            self.logger.error(f"Could not save pickle checkpoint. {e}")
         # save JSON checkpoint
-        json_save_dict(d, self.log_dir + 'checkpoint.json')
+        # json_save_dict(d, self.log_dir + 'checkpoint.json')
+        with open(self.log_dir + 'checkpoint.json', 'w') as f:
+            json.dump(d, f, indent=4, default=lambda x: str(x))
 
     def __str__(self):
         s = self.__class__.__name__
         return s
 
     def train_dict(self):
-        raise NotImplementedError
+        raise DeprecationWarning()
 
     def compute_metrics(self, data):
         raise NotImplementedError
