@@ -12,6 +12,9 @@ class GloveEmbedding:
             col_norm = np.linalg.norm(self.W_emb[:, col_id])
             self.W_emb[:, col_id] = self.W_emb[:, col_id] / col_norm
 
+        self.unknown = np.mean(self.W_emb, axis=0)
+        self.unknown = self.unknown / np.linalg.norm(self.unknown)
+
         self.word_to_freq_dict = get_word_to_freq(freq_file)
 
         self.id_to_freq_dict = {}
@@ -24,6 +27,8 @@ class GloveEmbedding:
         return get_word_idx(word, self.word_to_row)
 
     def __getitem__(self, idx):
+        if idx == -1:
+            return self.unknown
         return self.W_emb[idx]
 
     def id_to_freq(self, idx):
@@ -107,7 +112,7 @@ def get_word_idx(word, word_to_row):
         return word_to_row[word]
     elif "unk" in word_to_row:
         print("Unknown word: {}".format(word))
-        return word_to_row["unk"]
+        return -1 #word_to_row["unk"]
     else:
         print("Unknown word (no 'unk' token available): {}".format(word))
         return -1

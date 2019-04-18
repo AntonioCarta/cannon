@@ -17,6 +17,14 @@ class Dataset:
         """ Output shape. If batch is not set by the class, it is set to 1. """
         raise NotImplementedError()
 
+    def iter(self):
+        """ Dataset iterator.
+
+            Returns: tuple (x, y). If some dataset need more than one input (e.g. masks) it must return it as a tuple
+                (x, x_mask), (y, y_mask).
+        """
+        raise NotImplementedError()
+
     def metric_score(self, y_pred, y_target):
         """ Compute the metric given a predicted and target sample. By default the metric is just the opposite
             of the loss.

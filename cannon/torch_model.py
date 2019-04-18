@@ -291,7 +291,7 @@ class TorchTrainer:
         try:
             with open(self.log_dir + 'checkpoint.pickle', 'wb') as f:
                 pickle.dump(d, f)
-        except pickle.PickleError as e:
+        except BaseException as e:
             self.logger.error(f"Could not save pickle checkpoint. {e}")
         # save JSON checkpoint
         # json_save_dict(d, self.log_dir + 'checkpoint.json')
@@ -313,4 +313,6 @@ class TorchTrainer:
 
     def _init_training(self, train_data, val_data):
         """ Initialize optimizers and other variables useful during the training. """
-        raise NotImplementedError
+        # raise NotImplementedError
+        # TODO: deprecate? with callbacks and the optimizer argument it is probably useless.
+        pass

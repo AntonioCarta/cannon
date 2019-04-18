@@ -12,6 +12,12 @@ import pickle
 ALLOW_CUDA = True  # Global variable to control cuda_move allocation behavior
 
 
+def standard_init(params):
+    for p in params:
+        if len(p.shape) == 2:
+            torch.nn.init.xavier_uniform_(p)
+
+
 def deprecated(reason):
     """
     This is a decorator which can be used to mark functions
@@ -191,3 +197,10 @@ def load_dir_results(log_dir):
             except EOFError:
                 print(f"could not open {log_file}")
     return res
+
+
+def log_dir_k(base_log_dir):
+    i=0
+    while os.path.exists(base_log_dir + f'k_{i}'):
+        i += 1
+    return base_log_dir + f'k_{i}/'

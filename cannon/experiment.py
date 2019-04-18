@@ -41,17 +41,17 @@ class Experiment:
         self.experiment_log.info('-' * 10)
         self.experiment_log.info("Experiment started.")
 
-    def run(self, config):
+    def run(self, config=None):
         """
         Launch the experiment with a given configuration.
         :param config: Experiment configuration
         """
         self.experiment_log.info("Starting new run.")
-        self.experiment_log.info("Configuration: " + config.pretty_print())
+        # self.experiment_log.info("Configuration: " + config.pretty_print())
         self.foo(config)
         self.experiment_log.info("Experiment terminated.")
 
-    def foo(self, config):
+    def foo(self, config=None):
         raise NotImplementedError()
 
 
