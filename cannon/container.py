@@ -1,6 +1,7 @@
 import torch
 from torch import jit
 from torch import nn
+from .utils import standard_init
 
 
 class DiscreteRNN(jit.ScriptModule):
@@ -12,6 +13,7 @@ class DiscreteRNN(jit.ScriptModule):
         self.embed = nn.Embedding(input_size, hidden_size)
         self.ro = nn.Linear(hidden_size, output_size)
         self.rnn = rnn
+        standard_init(self.parameters())
 
     @jit.script_method
     def forward(self, x):
@@ -28,6 +30,9 @@ class SequenceClassifier(jit.ScriptModule):
         self.rnn = rnn_cell
         self.Wo = nn.Parameter(0.01 * torch.rand(output_size, hidden_size))
         self.bo = nn.Parameter(0.01 * torch.rand(output_size))
+        for p in self.parameters():
+            if len(p.shape) == 2:
+                torch.nn.init.xavier_uniform_(p)
 
     @jit.script_method
     def forward(self, x):
