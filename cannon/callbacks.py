@@ -18,6 +18,7 @@ try:
 except ModuleNotFoundError:
     print("tensorboardX is not available. TBCallback cannot be used without it.")
 
+
 class TrainingCallback:
     def __init__(self):
         pass
@@ -36,6 +37,12 @@ class TrainingCallback:
 
     def after_training_interrupted(self, model_trainer):
         pass
+
+    def after_backward(self, model_trainer):
+        pass
+
+    def __str__(self):
+        return self.__class__.__name__ + '(TrainingCallback)'
 
 def save_training_checkpoint(self, e):
     torch.save(self.model, self.log_dir + 'model_e.pt')
@@ -254,9 +261,13 @@ class ModelCheckpoint(TrainingCallback):
             model_trainer.model = torch.load(model_name + '.pt', device)
             model_trainer.logger.info("Loaded best model checkpoint before final validation.")
         elif os.path.isfile(model_name + '.ptj'):
-            device = f'cuda:{torch.cuda.current_device()}'
-            model_trainer.model = torch.jit.load(model_name + '.ptj', device)
-            model_trainer.logger.info("Loaded best model checkpoint before final validation.")
+            try:
+                device = f'cuda:{torch.cuda.current_device()}'
+                model_trainer.model = torch.jit.load(model_name + '.ptj', device)
+                model_trainer.logger.info("Loaded best model checkpoint before final validation.")
+            except BaseException as e:
+                model_trainer.logger.info(str(e))
+                model_trainer.logger.info("Could not load model. Checkpoint is corrupted.")
 
     def after_epoch(self, model_trainer, train_data, validation_data):
         def try_save(model_name):
@@ -274,9 +285,6 @@ class ModelCheckpoint(TrainingCallback):
                 try_save(self.log_dir + 'best_model')
         except Exception as err:
             model_trainer.logger.debug(err)
-
-    def __str__(self):
-        return f"ModelCheckpoint(TrainingCallback)"
 
 
 class CometCallback(TrainingCallback):
