@@ -10,8 +10,11 @@ from matplotlib.figure import Figure
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 import json
-from comet_ml import Experiment
 
+try:
+    from comet_ml import Experiment
+except ModuleNotFoundError:
+    print("comet_ml is not available. CometCallback cannot be used without it.")
 
 try:
     from tensorboardX import SummaryWriter
@@ -161,20 +164,20 @@ class SampleVisualizer(TrainingCallback):
 
 class LRDecayCallback(TrainingCallback):
     """ Periodically reduce the learning rate if the validation performance is not improving.
-    The optimizer used by the trainer must be torch.optim.SGD.
 
     Attributes:
         decay_rate (float): multiplicative factor used to compute the new lr. must be < 1.
     """
-    def __init__(self, decay_rate):
+    def __init__(self, decay_rate, patience):
         super().__init__()
         self.scheduler = None
         self.decay_rate = decay_rate
+        self.patience = patience
         self.prev_lr = None
 
     def before_training(self, model_trainer):
-        assert type(model_trainer.opt) == torch.optim.SGD
-        self.scheduler = ReduceLROnPlateau(model_trainer.opt, 'min', factor=self.decay_rate, verbose=False)
+        self.scheduler = ReduceLROnPlateau(model_trainer.opt, 'min', factor=self.decay_rate, patience=self.patience,
+                                           verbose=True)
         self.prev_lr = model_trainer.opt.param_groups[0]['lr']
 
     def after_epoch(self, model_trainer, train_data, validation_data):
@@ -231,18 +234,13 @@ class EarlyStoppingCallback(TrainingCallback):
     def __init__(self, patience):
         super().__init__()
         self.patience = patience
-        self._best_loss = -10 ** 9
-        self._best_epoch = 0
-
-    def before_training(self, model_trainer):
-        self._best_loss = -10 ** 9
-        self._best_epoch = 0
 
     def after_epoch(self, model_trainer, train_data, validation_data):
         e = model_trainer.global_step
-        if model_trainer.best_vl_metric >= model_trainer.val_metrics[-1] and \
+        model_trainer.logger.debug(f"EarlyStoppingCallback patience={self.patience}, waiting={e - model_trainer.best_epoch}")
+        if not model_trainer.is_improved_performance(model_trainer) and \
                 e - model_trainer.best_epoch > self.patience:
-            model_trainer.logger.info("Early stopping at epoch {}".format(e))
+            model_trainer.logger.info("Early stopping at epoch {}".format(e + 1))
             model_trainer.stop_train()
 
     def __str__(self):
@@ -257,13 +255,11 @@ class ModelCheckpoint(TrainingCallback):
     def after_train_before_validate(self, model_trainer):
         model_name = self.log_dir + 'best_model'
         if os.path.isfile(model_name + '.pt'):
-            device = f'cuda:{torch.cuda.current_device()}'
-            model_trainer.model = torch.load(model_name + '.pt', device)
+            model_trainer.model = cuda_move(torch.load(model_name + '.pt'))
             model_trainer.logger.info("Loaded best model checkpoint before final validation.")
         elif os.path.isfile(model_name + '.ptj'):
             try:
-                device = f'cuda:{torch.cuda.current_device()}'
-                model_trainer.model = torch.jit.load(model_name + '.ptj', device)
+                model_trainer.model = cuda_move(torch.jit.load(model_name + '.ptj'))
                 model_trainer.logger.info("Loaded best model checkpoint before final validation.")
             except BaseException as e:
                 model_trainer.logger.info(str(e))
@@ -281,7 +277,7 @@ class ModelCheckpoint(TrainingCallback):
 
         try:
             try_save(self.log_dir + 'model_e')
-            if model_trainer.val_metrics[-1] == max(model_trainer.val_metrics):
+            if model_trainer.best_epoch == model_trainer.global_step:
                 try_save(self.log_dir + 'best_model')
         except Exception as err:
             model_trainer.logger.debug(err)
