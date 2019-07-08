@@ -4,9 +4,7 @@
 import random
 from cannon.experiment import Experiment
 import pickle
-from cannon.torch_model import json_save_dict
 import os
-from itertools import product
 import json
 
 
@@ -55,7 +53,8 @@ class ParamListTrainer(Experiment):
             self.experiment_log.info("{}".format(f'\t{pl}'))
 
         for i, params in enumerate(self.param_list[start_i:]):
-            self.experiment_log.info("Configuration: {}".format(params))
+            i = i + start_i  # for logging purposes
+            self.experiment_log.info(f"Configuration {i}: {params}")
             train_log_dir = self.log_dir + 'k_{}/'.format(i)
             os.makedirs(train_log_dir, exist_ok=True)
 
