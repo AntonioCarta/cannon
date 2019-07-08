@@ -24,7 +24,7 @@ def get_Xi_block(data, n_block):
     return Xhii
 
 
-def Svd_single_column(data, n_components=10, verbose=False):
+def Svd_single_column(data, n_components=10, k=1, verbose=False):
     """ Compute the SVD for big matrices, approximating the result.
 
     Args:
@@ -33,21 +33,38 @@ def Svd_single_column(data, n_components=10, verbose=False):
         n_components: number of principal components to return as output.
     """
     num_slices = max([len(el) for el in data])
-    last_slice = get_Xi_block(data, num_slices)
 
+    if k >= num_slices:
+        if verbose:
+            print("k > num_slices. computing the SVD in a single step.")
+        curr_slice = []
+        for jj in range(num_slices):
+            xii = get_Xi_block(data, jj)
+            curr_slice.append(xii)
+        curr_slice = np.hstack(curr_slice)
+        V, s, Uh = la.svd(curr_slice)
+        return V[:,:n_components], np.diag(s[:n_components]), Uh[:n_components,:]
+
+    last_slice = get_Xi_block(data, num_slices - 1)
     # compute svd for the last slice, and then repeat this process for each slice concatenated with the previous result.
     v, s, u_t = KeCSVD(last_slice, n_components)
-    for i in reversed(range(num_slices)):
+    for i in reversed(range(0, num_slices - 1, k)):
         if verbose:
             print("slice", i, " of ", num_slices)
         curr_vs = v @ s
-        curr_slice = get_Xi_block(data, i)
+
+        curr_slice = []
+        for jj in range(i, min(i + k, num_slices - 1)):
+            xii = get_Xi_block(data, jj)
+            curr_slice.append(xii)
+        curr_slice = np.hstack(curr_slice)
+
         curr_vs = np.hstack((curr_slice, curr_vs))
         v, s, u_t = KeCSVD(curr_vs, n_components)
     return v, s, u_t
 
 
-def SvdForBigData(data, sample_dim, n_components=10, k=1, verbose=False):
+def SvdForBigData(data, sample_dim, n_components, k=1, verbose=False):
     """ Compute the SVD for big matrices, approximating the result.
 
     Args:

@@ -1,9 +1,31 @@
 import numpy as np
 import scipy.linalg as la
+
+from cannon.la.big_svd import SvdForBigData, Svd_single_column
 from cannon.tasks.dataset import mackey_glass
 from cannon.la.svd_la import LinearAutoencoder, IncrementalLinearAutoencoder, build_xhi_matrix
 from cannon.la.skl import svd_sign_flip
 from cannon.tasks import PianoRollData
+
+
+def test_svd_single_column():
+    n = 200
+    data = _create_data(batch_size=3, k=2, n=n) + 3
+    p = 300
+
+    xhi = build_xhi_matrix(data)
+    V, s, Uh = SvdForBigData(xhi, 2, p, verbose=True)
+    reco_big = V @ s @ Uh
+    print("big SVD error: {}".format(la.norm(xhi[:, :reco_big.shape[1]] - reco_big) / la.norm(xhi[:, :reco_big.shape[1]])))
+
+    V, s, Uh = Svd_single_column(data, p, k=40, verbose=True)
+    reco_sc = V @ s @ Uh
+    print("single col. SVD error: {}".format(la.norm(xhi[:, :reco_sc.shape[1]] - reco_sc) / la.norm(xhi[:, :reco_sc.shape[1]])))
+
+    V, s, Uh = la.svd(xhi)
+    reco_svd = (V[:, :p] @ np.diag(s[:p]) @ Uh[:p, :])[:, :reco_big.shape[1]]
+    print("exact SVD error: {}".format(la.norm(xhi[:, :reco_big.shape[1]] - reco_svd) / la.norm(xhi[:, :reco_big.shape[1]])))
+    # np.testing.assert_allclose(data, reco, rtol=1.e-5)
 
 
 def _create_data(batch_size, k, n):
@@ -94,6 +116,7 @@ def test_inc_la_forget_factor():
 
 
 if __name__ == '__main__':
+    test_svd_single_column()
     test_la()
     test_inc_la()
     test_inc_la_forget_factor()

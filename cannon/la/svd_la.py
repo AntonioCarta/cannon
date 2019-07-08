@@ -3,7 +3,7 @@ import scipy.linalg as la
 from scipy import sparse
 from sklearn.exceptions import NotFittedError
 from cannon.la.skl import svd_sign_flip
-from .big_svd import Svd_single_column
+from .big_svd import Svd_single_column, SvdForBigData
 import pickle
 
 
@@ -22,6 +22,8 @@ def build_xhi_matrix(data):
 
     sum_prev_samples = 0
     for sample_i, sample in enumerate(data):
+        if sample_i % 100 == 0:
+            print(f"sample {sample_i}")
         for t_step in range(len(sample)):
             it = min(len(sample) - t_step, max_len)
             for offset in range(it):
@@ -95,13 +97,14 @@ def vt_R_v_block_multiplication(V, len_samples):
 
 
 class LinearAutoencoder:
-    def __init__(self, p, epsilon=1e-7):
+    def __init__(self, p, epsilon=1e-7, whiten=True):
         self.epsilon = epsilon
+        self.whiten = whiten
         self.p = p
         # parameters
         self.A = None
         self.B = None
-        self.mean = None
+        self.mean = 0.0
         self.sigma = None
 
     def fit(self, data, approximate=False, approx_k=1, verbose=False):
@@ -118,25 +121,29 @@ class LinearAutoencoder:
         batch_size = len(len_samples)
         n = data[0].shape[0]
         k = data[0].shape[1]
-        self.p = min(self.p, k*n, batch_size*n)
+        # self.p = min(self.p, k*n, batch_size*n)
         p = self.p
 
         # compute mean
-        curr_mean = 0
-        for el in data:
-            curr_mean += el.shape[0] * np.mean(el, axis=0)
-        self.mean = curr_mean / sum(len_samples)
+        if self.whiten:
+            curr_mean = 0
+            for el in data:
+                curr_mean += el.shape[0] * np.mean(el, axis=0)
+            self.mean = curr_mean / sum(len_samples)
 
-        # mean shift
-        for i in range(len(data)):
-            data[i] = data[i] - self.mean
+            # mean shift
+            for i in range(len(data)):
+                data[i] = data[i] - self.mean
 
         if verbose:
             print("computing SVD decomposition.")
         if approximate:
             V, s, Uh = Svd_single_column(data, self.p, verbose=verbose)
+            # data = build_xhi_matrix(data)
+            # V, s, Uh = SvdForBigData(data, approx_k, p, verbose=verbose)
             s = np.diag(s).copy()
         else:
+            data = build_xhi_matrix(data)
             V, s, Uh = la.svd(data, full_matrices=False)
 
         V = V[:, :p]
@@ -165,7 +172,7 @@ class LinearAutoencoder:
         if self.A is None:
             raise NotFittedError()
 
-        y0 = np.zeros(self.p)
+        y0 = np.zeros(self.B.shape[0])
         hist = []
         for i in range(n):
             y0 = x[:, i, :] @ self.A.T + y0 @ self.B.T
@@ -197,6 +204,7 @@ class LinearAutoencoder:
         with open(file_name, 'rb') as f:
             d = pickle.load(f)
         self.__dict__.update(d)
+        return self
 
 
 class IncrementalLinearAutoencoder(LinearAutoencoder):
