@@ -25,13 +25,13 @@ class Dataset:
         """
         raise NotImplementedError()
 
-    def metric_score(self, y_pred, y_target):
+    def metric_score(self, batch, y_pred):
         """ Compute the metric given a predicted and target sample. By default the metric is just the opposite
             of the loss.
          """
-        return -self.loss_score(y_pred, y_target)
+        return -self.loss_score(batch, y_pred)
 
-    def loss_score(self, y_pred, y_target):
+    def loss_score(self, batch, y_pred):
         """ Compute the loss given a predicted and target sample. """
         raise NotImplementedError()
 
