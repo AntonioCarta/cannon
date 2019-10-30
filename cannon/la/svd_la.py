@@ -22,14 +22,10 @@ def build_xhi_matrix(data):
 
     sum_prev_samples = 0
     for sample_i, sample in enumerate(data):
-        if sample_i % 100 == 0:
-            print(f"sample {sample_i}")
+        reversed_sample = sample[::-1, :].reshape(-1)
         for t_step in range(len(sample)):
-            it = min(len(sample) - t_step, max_len)
-            for offset in range(it):
-                row_idx = sum_prev_samples + t_step + offset
-                col_idx = offset * n_features
-                Xhi[row_idx, col_idx:col_idx + n_features] = sample[t_step]
+            row_idx = sum_prev_samples + t_step
+            Xhi[row_idx, :t_step*n_features + n_features] = reversed_sample[-t_step*n_features - n_features:]
         sum_prev_samples += len_samples[sample_i]
     return Xhi
 
@@ -138,7 +134,7 @@ class LinearAutoencoder:
         if verbose:
             print("computing SVD decomposition.")
         if approximate:
-            V, s, Uh = Svd_single_column(data, self.p, verbose=verbose)
+            V, s, Uh = Svd_single_column(data, self.p, k=approx_k, verbose=verbose)
             # data = build_xhi_matrix(data)
             # V, s, Uh = SvdForBigData(data, approx_k, p, verbose=verbose)
             s = np.diag(s).copy()

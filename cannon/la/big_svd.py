@@ -14,7 +14,7 @@ import math
 def get_Xi_block(data, n_block):
     len_samples = [len(el) for el in data]
     tot_len = sum(len_samples)
-    Xhii = np.zeros((tot_len, data[0][0].shape[0]))
+    Xhii = np.zeros((tot_len, data[0][0].shape[0]), dtype=np.float32)
 
     sum_prev_samples = 0
     for sample_i, sample in enumerate(data):
@@ -48,10 +48,12 @@ def Svd_single_column(data, n_components=10, k=1, verbose=False):
     last_slice = get_Xi_block(data, num_slices - 1)
     # compute svd for the last slice, and then repeat this process for each slice concatenated with the previous result.
     v, s, u_t = KeCSVD(last_slice, n_components)
+    del last_slice
     for i in reversed(range(0, num_slices - 1, k)):
         if verbose:
             print("slice", i, " of ", num_slices)
         curr_vs = v @ s
+        del v, s, u_t
 
         curr_slice = []
         for jj in range(i, min(i + k, num_slices - 1)):
@@ -61,6 +63,7 @@ def Svd_single_column(data, n_components=10, k=1, verbose=False):
 
         curr_vs = np.hstack((curr_slice, curr_vs))
         v, s, u_t = KeCSVD(curr_vs, n_components)
+        del curr_vs
     return v, s, u_t
 
 
