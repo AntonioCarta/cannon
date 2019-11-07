@@ -3,150 +3,45 @@ import pickle
 
 import torch
 
-from .experiment import Experiment, Config
 from .utils import cuda_move
 import logging
 import torch.nn as nn
-from collections import namedtuple
-from itertools import product
 from logging import Logger
 from .callbacks import EarlyStoppingCallback, LearningCurveCallback, ModelCheckpoint
-from .utils import deprecated
+from tqdm import tqdm
 import json
 
 
-class LMTRainingConfig(Config):
-    def __init__(self, param_list, train_data, val_data, batch_size, n_epochs, patience=50):
-        self.batch_size = batch_size
-        self.n_epochs = n_epochs
-        self.param_list = param_list
-        self.train_data = train_data
-        self.val_data = val_data
-        self.patience = patience
-
-    def pretty_print(self, d=None):
-        d = self.__dict__.copy()
-        d['train_data'] = str(self.train_data)
-        d['val_data'] = str(self.val_data)
-        return str(d)
-
-
-class PLTConfig(Config):
-    def __init__(self, model_params, train_params, train_data, val_data):
-        self.model_params = model_params
-        self.train_params = train_params
-        self.train_data = train_data
-        self.val_data = val_data
-
-    def pretty_print(self, d=None):
-        d = self.__dict__.copy()
-        d['train_data'] = str(self.train_data)
-        d['val_data'] = str(self.val_data)
-        return str(d)
-
-
-def build_default_logger(log_dir : str) -> Logger:
-    default_logger : Logger = logging.getLogger(log_dir + '_' + 'log_output')
-    default_logger.setLevel(logging.DEBUG)
+def build_default_logger(log_dir: str, debug=False) -> Logger:
+    log_mode = logging.INFO
+    if debug:
+        log_mode = logging.DEBUG
+    default_logger: Logger = logging.getLogger(log_dir + '_' + 'log_output')
+    default_logger.setLevel(log_mode)
 
     # log to output file
     log_file = log_dir + 'output.log'
     fh = logging.FileHandler(log_file)
-    fh.setLevel(logging.DEBUG)
+    fh.setLevel(log_mode)
     formatter = logging.Formatter('%(asctime)s %(levelname)s: %(message)s',
                                   datefmt='%m/%d/%Y %I:%M:%S')
     fh.setFormatter(formatter)
     default_logger.addHandler(fh)
     # log to stdout
     ch = logging.StreamHandler()
-    ch.setLevel(logging.DEBUG)
+    ch.setLevel(log_mode)
     ch.setFormatter(formatter)
     default_logger.addHandler(ch)
     return default_logger
 
 
-@deprecated("use python json module with json.dump(d, f, indent=4, default=lambda x: str(x)).")
-def json_save_dict(obj_dict, file_name):
-    def json_save_fp(d, fp, indent=0):
-        ind = '\t' * indent
-        fp.write('{\n')
-        for k, v in d.items():
-            if type(v) is dict:
-                fp.write(ind + '\t"{}": '.format(k))
-                json_save_fp(v, fp, indent + 1)
-            elif type(v) is list:
-                fp.write(ind + '\t"{}": [\n'.format(k))
-                for el in v:
-                    fp.write(ind + '\t\t{},\n'.format(el))
-                fp.write(ind + '\t]\n')
-            else:
-                fp.write(ind + '\t"{}": {},\n'.format(k, v))
-        fp.write(ind + '},\n')
-
-    with open(file_name, 'w') as f:
-        json_save_fp(obj_dict, f)
-
-
-class ParamListTrainer(Experiment):
-    def __init__(self, log_dir, model_class, trainer_class, resume_ok=True):
-        self.results = []
-        super().__init__(log_dir, resume_ok=resume_ok)
-        self._model_class = model_class
-        self._trainer_class = trainer_class
-
-    def save_checkpoint(self, config):
-        # TODO: correct resume to working with model_pars x train_pars product
-        d = {'results': self.results, 'param_list': config.model_params}
-        with open(self.log_dir + 'checkpoint.pickle', 'wb') as f:
-            pickle.dump(d, f)
-        json_save_dict(d, self.log_dir + 'checkpoint.json')
-
-    def foo(self, config: PLTConfig):
-        self.results = []
-        self.experiment_log.info("Starting to train with {} different configurations.".format(len(config.model_params)))
-        self.experiment_log.info("{}".format(config.train_params))
-
-        start_i = 0
-        if self.resume_ok:
-            self.load_checkpoint()
-            if len(self.results) > 0:
-                self.experiment_log.info("Resuming experiment from configuration {}.".format(len(self.results)))
-                start_i = len(self.results)
-
-        model_train_prod = list(product(config.model_params, config.train_params))
-        for i, (model_par, train_par) in enumerate(model_train_prod[start_i:]):
-            self.experiment_log.info("Model parameters: {}".format(model_par))
-            self.experiment_log.info("Train parameters: {}".format(train_par))
-            train_log_dir = self.log_dir + 'k_{}/'.format(i)
-            os.makedirs(train_log_dir, exist_ok=True)
-
-            model = self._model_class(**model_par)
-            trainer = self._trainer_class(model=model, **train_par, log_dir=train_log_dir)
-            # try:
-            #     model_trainer.fit(config.train_data, config.val_data)
-            #     res = model_trainer.best_result
-            # except Exception as e:
-            #     self.experiment_log.error("training configuration failed with error: {}".format(e))
-            #     res = { 'tr_loss': np.NaN, 'tr_acc': np.NaN, 'vl_loss': np.NaN, 'vl_acc': np.NaN }
-            trainer.fit(config.train_data, config.val_data)
-            res = trainer.best_result
-
-            self.results.append(res)
-            self.save_checkpoint(config)
-            self.experiment_log.info("TR loss: {}, metric: {}".format(res['tr_loss'], res['tr_acc']))
-            self.experiment_log.info("VL loss: {}, metric: {}".format(res['vl_loss'], res['vl_acc']))
-
-    def load_checkpoint(self):
-        if os.path.exists(self.log_dir + 'checkpoint.pickle'):
-            with open(self.log_dir + 'checkpoint.pickle', 'rb') as f:
-                d = pickle.load(f)
-                if 'results' in d:
-                    self.results = d['results']
-
-
 class TorchTrainer:
-    def __init__(self, model: nn.Module, n_epochs: int=100, log_dir: str=None,
-                 callbacks=None, patience: int=5000, verbose=True, logger=None, validation_steps=1):
+    def __init__(self, model: nn.Module, n_epochs: int=100, log_dir: str=None, callbacks=None, patience: int=5000,
+                 verbose=True, logger=None, validation_steps=1, checkpoint_mode='loss', debug=False):
+        assert checkpoint_mode in {'loss', 'metric'}
+        self.checkpoint_mode = checkpoint_mode
+        self.debug = debug
+        self.is_improved_performance = TorchTrainer._is_improved_metric if checkpoint_mode == 'metric' else TorchTrainer._is_improved_loss
         self.model = cuda_move(model)
         self.n_epochs = n_epochs
         self.log_dir = log_dir
@@ -167,7 +62,7 @@ class TorchTrainer:
             'callbacks': self.callbacks,
         }
         if logger is None:
-            self.logger = build_default_logger(log_dir)
+            self.logger = build_default_logger(log_dir, debug)
 
     def _init_fit_history(self):
         self.train_losses = []
@@ -176,9 +71,19 @@ class TorchTrainer:
         self.val_metrics = []
         self.best_result = {}
         self.best_vl_metric = -1e15
+        self.best_vl_loss = 1e9
+        self.best_loss_epoch = -1  # used by _is_improved_loss when best_vl_loss is already updated
+        self.best_metric_epoch = -1  # used by _is_improved_metric when best_vl_metric is already updated
         self.best_epoch = 0
         self.global_step = 0
         self._stop_train = False
+        self.best_result = {
+            'tr_loss': 10 ** 10,
+            'tr_acc': -10 ** 10,
+            'vl_loss': 10 ** 10,
+            'vl_acc': -10 ** 10,
+            'best_epoch': -1
+        }
 
     def append_hyperparam_dict(self, d):
         self._hyperparams_dict = {**self._hyperparams_dict, **d}
@@ -254,7 +159,7 @@ class TorchTrainer:
             if self._stop_train:
                 self.logger.info(f"Training stopped at epoch {e + 1}")
                 break
-        # TODO: load best model before final validation (inside ModelCheckpoint callback)?
+
         for cb in self.callbacks:
             cb.after_train_before_validate(self)
         self.logger.info("Final Training Results:")
@@ -267,16 +172,31 @@ class TorchTrainer:
     def stop_train(self):
         self._stop_train = True
 
+    def _is_improved_metric(self):
+        return self.best_vl_metric < self.val_metrics[-1] or self.best_loss_epoch == self.global_step
+
+    def _is_improved_loss(self):
+        return self.best_vl_loss > self.val_losses[-1] or self.best_metric_epoch == self.global_step
+
     def save_checkpoint(self, e):
-        if self.best_vl_metric < self.val_metrics[-1]:
+        if self.is_improved_performance(self):
+            self.logger.debug('updating best result.')
+            self.best_epoch = e
             self.best_result = {
                 'tr_loss': self.train_losses[-1],
                 'tr_acc': self.train_metrics[-1],
                 'vl_loss': self.val_losses[-1],
-                'vl_acc': self.val_metrics[-1]
+                'vl_acc': self.val_metrics[-1],
+                'best_epoch': self.best_epoch
             }
+        if self._is_improved_loss():
+            self.logger.debug('improved loss.')
+            self.best_vl_loss = self.val_losses[-1]
+            self.best_loss_epoch = self.global_step
+        if self._is_improved_metric():
+            self.logger.debug('improved metric.')
             self.best_vl_metric = self.val_metrics[-1]
-            self.best_epoch = e
+            self.best_metric_epoch = self.global_step
 
         d = {
             'train_params': self._hyperparams_dict,
@@ -316,3 +236,101 @@ class TorchTrainer:
         # raise NotImplementedError
         # TODO: deprecate? with callbacks and the optimizer argument it is probably useless.
         pass
+
+
+class SequentialTaskTrainer(TorchTrainer):
+    def __init__(self, model, optimizer, n_epochs=100, log_dir=None, regularizers=None, callbacks=None, grad_clip=10):
+        super().__init__(model, n_epochs, log_dir)
+        self.opt = optimizer
+        self.grad_clip = grad_clip
+        self.append_hyperparam_dict({
+            'optimizer': optimizer,
+            'grad_clip': self.grad_clip
+        })
+        self.regularizers = [] if regularizers is None else regularizers
+        if callbacks:
+            self.callbacks.extend(callbacks)
+
+    def compute_metrics(self, data):
+        with torch.no_grad():
+            self.model.eval()
+            err = 0
+            acc = 0
+            bi = 0
+            for xi, yi in tqdm(data.iter()):
+                y_pred = self.model(xi)
+                err += data.loss_score(y_pred, yi)
+                acc += data.metric_score(y_pred, yi)
+                bi += 1
+            err = err / bi
+            acc = acc / bi
+
+            if torch.isnan(err):
+                self.logger.info("NaN loss. Stopping training...")
+                self.stop_train()
+
+        return float(err), float(acc)
+
+    def fit_epoch(self, train_data):
+        self.model.train()
+        for xi, yi in tqdm(train_data.iter()):
+            y_pred = self.model(xi)
+            err = train_data.loss_score(y_pred, yi)
+
+            reg = 0.0
+            for reg_foo in self.regularizers:
+                reg += reg_foo(self.model, xi, yi)
+            err = err + reg
+
+            self.model.zero_grad()
+            err.backward()
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=self.grad_clip)
+            self.opt.step()
+
+            for cb in self.callbacks:
+                cb.after_backward(xi)
+
+
+class GenericTaskTrainer(TorchTrainer):
+    def __init__(self, model, optimizer, n_epochs=100, log_dir=None, regularizers=None, **kwargs):
+        super().__init__(model, n_epochs, log_dir, **kwargs)
+        self.opt = optimizer
+        self.append_hyperparam_dict({
+            'optimizer': optimizer
+        })
+        self.regularizers = [] if regularizers is None else regularizers
+
+    def compute_metrics(self, data):
+        with torch.no_grad():
+            self.model.eval()
+            err = 0
+            acc = 0
+            bi = 0
+            for batch in tqdm(data.iter()):
+                y_pred = self.model(batch)
+                err += data.loss_score(y_pred, batch).detach()
+                acc += data.metric_score(y_pred, batch).detach()
+                bi += 1
+            err = err / bi
+            acc = acc / bi
+
+            if torch.isnan(err):
+                self.logger.info("NaN loss. Stopping training...")
+                self.stop_train()
+
+        return float(err), float(acc)
+
+    def fit_epoch(self, train_data):
+        self.model.train()
+        for batch in tqdm(train_data.iter()):
+            y_pred = self.model(batch)
+            err = train_data.loss_score(y_pred, batch)
+
+            reg = 0.0
+            for reg_foo in self.regularizers:
+                reg += reg_foo(self.model, batch)
+            err = err + reg
+
+            self.model.zero_grad()
+            err.backward()
+            self.opt.step()
