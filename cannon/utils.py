@@ -70,6 +70,10 @@ def deprecated(reason):
 def set_allow_cuda(b):
     global ALLOW_CUDA
     ALLOW_CUDA = b
+    if b:
+        print("CUDA enabled.")
+    else:
+        print("CUDA disabled.")
 
 
 def set_gpu():
@@ -80,20 +84,23 @@ def set_gpu():
         print("gpustat module is not installed.")
         raise e
 
-    stats = gpustat.GPUStatCollection.new_query()
-    ids = map(lambda gpu: int(gpu.entry['index']), stats)
-    ratios = map(lambda gpu: float(gpu.entry['memory.used']) / float(gpu.entry['memory.total']), stats)
-    bestGPU = min(zip(ids, ratios), key=lambda x: x[1])[0]
+    try:
+        stats = gpustat.GPUStatCollection.new_query()
+        ids = map(lambda gpu: int(gpu.entry['index']), stats)
+        ratios = map(lambda gpu: float(gpu.entry['memory.used']) / float(gpu.entry['memory.total']), stats)
+        bestGPU = min(zip(ids, ratios), key=lambda x: x[1])[0]
 
-    print("Setting GPU to: {}".format(bestGPU))
-    os.environ['CUDA_DEVICE_ORDER'] = 'PCI_BUS_ID'
-    os.environ['CUDA_VISIBLE_DEVICES'] = str(bestGPU)
+        print("Setting GPU to: {}".format(bestGPU))
+        os.environ['CUDA_DEVICE_ORDER'] = 'PCI_BUS_ID'
+        os.environ['CUDA_VISIBLE_DEVICES'] = str(bestGPU)
+    except BaseException as e:
+        print("GPU not available: " + str(e))
 
 
 def cuda_move(args):
     """ Move a sequence of tensors to CUDA if the system supports it. """
     if not ALLOW_CUDA:
-        return args
+        return args.cpu()
     b = torch.cuda.is_available()
     # for t in args:
     #     if b:
