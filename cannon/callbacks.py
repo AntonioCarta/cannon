@@ -255,7 +255,8 @@ class ModelCheckpoint(TrainingCallback):
     def after_train_before_validate(self, model_trainer):
         model_name = self.log_dir + 'best_model'
         if os.path.isfile(model_name + '.pt'):
-            model_trainer.model = cuda_move(torch.load(model_name + '.pt'))
+            # model_trainer.model = cuda_move(torch.load(model_name + '.pt'))
+            model_trainer.model.load_state_dict(torch.load(model_name + '.pt'))
             model_trainer.logger.info("Loaded best model checkpoint before final validation.")
         elif os.path.isfile(model_name + '.ptj'):
             try:
@@ -264,14 +265,20 @@ class ModelCheckpoint(TrainingCallback):
             except BaseException as e:
                 model_trainer.logger.info(str(e))
                 model_trainer.logger.info("Could not load model. Checkpoint is corrupted.")
+        else:
+            model_trainer.logger.info("Checkpoint file not found. Using current model for final validation.")
 
     def after_epoch(self, model_trainer, train_data, validation_data):
         def try_save(model_name):
             if isinstance(model_trainer.model, torch.jit.ScriptModule):
                 # ScriptModule should be checked first because it is a subclass of nn.Module.
-                model_trainer.model.save(model_name + '.ptj')
+                try:
+                    model_trainer.model.save(model_name + '.ptj')
+                except Exception as e:
+                    torch.save(model_trainer.model, model_name + '.pt')
             elif isinstance(model_trainer.model, torch.nn.Module):
-                torch.save(model_trainer.model, model_name + '.pt')
+                # torch.save(model_trainer.model, model_name + '.pt')
+                torch.save(model_trainer.model.state_dict(), model_name + '.pt')
             else:
                 raise TypeError("Unrecognized model type. Cannot serialize.")
 
@@ -281,6 +288,8 @@ class ModelCheckpoint(TrainingCallback):
                 try_save(self.log_dir + 'best_model')
         except Exception as err:
             model_trainer.logger.debug(err)
+            model_trainer.logger.info('Error during model checkpoint phase.')
+            assert False
 
 
 class CometCallback(TrainingCallback):
@@ -326,3 +335,14 @@ class CometCallback(TrainingCallback):
     def __str__(self):
         str_tags = ", ".join(self.tag_list)
         return f"CometCallback({str_tags})"
+
+
+class OrthogonalInit(TrainingCallback):
+    def __init__(self, ortho_params, gain=1):
+        super().__init__()
+        self.ortho_params = ortho_params
+        self.gain = gain
+
+    def before_training(self, model_trainer):
+        for p in self.ortho_params:
+            torch.nn.init.orthogonal_(p, gain=1)
