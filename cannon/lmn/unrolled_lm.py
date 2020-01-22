@@ -12,7 +12,7 @@ from ..functional import selu
 
 
 class UnrolledLM(nn.Module):
-    def __init__(self, in_size, k, hidden_size, out_size, activation_fun=selu):
+    def __init__(self, in_size, k, hidden_size, out_size, activation_fun=F.tanh):
         super().__init__()
         self.activation_fun = activation_fun
         self.in_size = in_size
@@ -33,7 +33,6 @@ class UnrolledLM(nn.Module):
             X_t = X[t]
 
             h_cat = torch.cat(list(reversed(h_prevs)), dim=1)
-            # h_t = F.tanh(self.Whh(h_cat) + self.Wxh(X_t))
             h_t = self.activation_fun(self.Whh(h_cat) + self.Wxh(X_t))
 
             h_out = torch.cat([h_t] + list(reversed(h_prevs)), dim=1)

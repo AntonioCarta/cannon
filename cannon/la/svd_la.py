@@ -2,9 +2,118 @@ import numpy as np
 import scipy.linalg as la
 from scipy import sparse
 from sklearn.exceptions import NotFittedError
-from cannon.la.skl import svd_sign_flip
-from .big_svd import Svd_single_column, SvdForBigData
 import pickle
+import math
+import fbpca
+
+def get_Xi_block(data, n_block):
+    len_samples = [len(el) for el in data]
+    tot_len = sum(len_samples)
+    Xhii = np.zeros((tot_len, data[0][0].shape[0]), dtype=np.float32)
+
+    sum_prev_samples = 0
+    for sample_i, sample in enumerate(data):
+        for t_step in range(len(sample) - n_block):
+            Xhii[sum_prev_samples + t_step + n_block, :] = sample[t_step]
+        sum_prev_samples += len_samples[sample_i]
+    return Xhii
+
+
+def get_Xi_range(data, idx_start, idx_end):
+    Xi_blocks = []
+    for ii in range(idx_start, idx_end + 1):
+        Xi_blocks.append(get_Xi_block(data, ii))
+    return np.hstack(Xi_blocks)
+
+
+def Svd_single_column(data, n_components=10, k=1, verbose=False):
+    """ Compute the SVD for big matrices, approximating the result.
+
+    Args:
+        data: input matrix.
+        sample_dim: dimension of a single slice.
+        n_components: number of principal components to return as output.
+    """
+    num_slices = max([len(el) for el in data])
+
+    if k >= num_slices:
+        if verbose:
+            print("k > num_slices. computing the SVD in a single step.")
+        curr_slice = []
+        curr_slice = get_Xi_range(data, 0, num_slices - 1)
+        V, s, Uh = np.linalg.svd(curr_slice)
+        return V[:, :n_components], np.diag(s[:n_components]), Uh[:n_components, :]
+
+    remaining = num_slices - math.floor(num_slices / k) * k
+    if remaining == 0:
+        remaining = k
+
+    last_slice = get_Xi_range(data, num_slices - remaining, num_slices - 1)
+    if verbose:
+        print("slice: ", num_slices - remaining, " to ", num_slices - 1)
+    # compute svd for the last slice, and then repeat this process for each slice concatenated with the previous result.
+    v, s, u_t = KeCSVD(last_slice, n_components)
+    del last_slice
+    for i in reversed(range(0, num_slices - remaining, k)):
+        curr_vs = v @ s
+        del v, s, u_t
+
+        curr_slice = get_Xi_range(data, i, i + k - 1)
+        if verbose:
+            print("slice: ", i, " to ", i + k - 1)
+
+        curr_vs = np.hstack((curr_slice, curr_vs))
+        v, s, u_t = KeCSVD(curr_vs, n_components)
+        del curr_vs
+    return v, s, u_t
+
+
+def indirectSVD(M, p):
+    """
+    SVD decomposition.
+
+    Args:
+        M: sparse input matrix
+        p: number of principal components.
+    """
+    Q, R = np.linalg.qr(M)
+    v_r, s, u_t = np.linalg.svd(R)
+    v = Q.dot(v_r)
+
+    s = s[0:p]
+    v = v[:, 0:p]
+    u_t = u_t[0:p, :]
+
+    s = sparse.csc_matrix((s.tolist(), (range(s.shape[0]), range(s.shape[0]))), shape=(v.shape[1], u_t.shape[0]))
+    s = s.todense()
+    return v, s, u_t
+
+
+def KeCSVD(M, p=10, min_sigma=0.000001):
+    c = 0
+    if M.shape[0] <= M.shape[1]:
+        # svd on kernel matrix
+        Kernel = M @ M.transpose()
+        v, Ssqr, _ = indirectSVD(Kernel, p)
+        s = np.sqrt(Ssqr)
+        u_t = np.linalg.pinv(s) @ v.transpose() @ M
+    else:
+        # svd on convariance matrix
+        Cov = M.transpose() @ M
+        _, Ssqr, u_t = indirectSVD(Cov, p)
+        s = np.sqrt(Ssqr)
+        v = M @ u_t.transpose() @ np.linalg.pinv(s)
+    C = s.shape[0]
+
+    for c in reversed(range(C)):
+        if s[c, c] > min_sigma:
+            break
+    # TODO: this can change the dimension.
+    # either fill with zeros or output some warning.
+    v[:, c:] = 0
+    s[c:, c:] = 0
+    u_t[c:, :] = 0
+    return v, s, u_t
 
 
 def build_xhi_matrix(data):
@@ -22,10 +131,14 @@ def build_xhi_matrix(data):
 
     sum_prev_samples = 0
     for sample_i, sample in enumerate(data):
-        reversed_sample = sample[::-1, :].reshape(-1)
+        if sample_i % 100 == 0:
+            print(f"sample {sample_i}")
         for t_step in range(len(sample)):
-            row_idx = sum_prev_samples + t_step
-            Xhi[row_idx, :t_step*n_features + n_features] = reversed_sample[-t_step*n_features - n_features:]
+            it = min(len(sample) - t_step, max_len)
+            for offset in range(it):
+                row_idx = sum_prev_samples + t_step + offset
+                col_idx = offset * n_features
+                Xhi[row_idx, col_idx:col_idx + n_features] = sample[t_step]
         sum_prev_samples += len_samples[sample_i]
     return Xhi
 
@@ -103,13 +216,14 @@ class LinearAutoencoder:
         self.mean = 0.0
         self.sigma = None
 
-    def fit(self, data, approximate=False, approx_k=1, verbose=False):
+    def fit(self, data, svd_algo='fb_pca', approx_k=1, verbose=False):
         """
         Fit the Linear Autoencoder using SVD-based training.
 
         Args:
             data: list of sequences (possibly with different lengths)
         """
+        print(f"svd_algo = {svd_algo}")
         if self.A is not None:
             print("linear autoencoder has been already trained.")
 
@@ -131,16 +245,19 @@ class LinearAutoencoder:
             for i in range(len(data)):
                 data[i] = data[i] - self.mean
 
-        if verbose:
-            print("computing SVD decomposition.")
-        if approximate:
+        print("computing SVD decomposition.")
+
+        if svd_algo == 'cols':
             V, s, Uh = Svd_single_column(data, self.p, k=approx_k, verbose=verbose)
-            # data = build_xhi_matrix(data)
-            # V, s, Uh = SvdForBigData(data, approx_k, p, verbose=verbose)
             s = np.diag(s).copy()
-        else:
+        elif svd_algo == 'exact':
             data = build_xhi_matrix(data)
             V, s, Uh = la.svd(data, full_matrices=False)
+        elif svd_algo == 'fb_pca':
+            data = build_xhi_matrix(data)
+            V, s, Uh = fbpca.pca(data, k=p, raw=True, n_iter=5)
+        else:
+            assert False
 
         V = V[:, :p]
         s = s[:p]
@@ -201,142 +318,3 @@ class LinearAutoencoder:
             d = pickle.load(f)
         self.__dict__.update(d)
         return self
-
-
-class IncrementalLinearAutoencoder(LinearAutoencoder):
-    def __init__(self, p, forget_factor=1.0, epsilon=1e-7):
-        super().__init__(p, epsilon=epsilon)
-        # parameters
-        self.tot_samples = 0
-        self.forget_factor = forget_factor
-        self.u = None
-        self.s = None
-        self.vt = None
-        self.utRu = None
-        self.mean = 0
-
-    def partial_fit(self, data):
-        """
-        Fit the Linear Autoencoder using incremental SVD-based training.
-        NOTE: due to implementation issues sentences must have the same length.
-
-        Args:
-            data: numpy array of shape (batch, time, features) or list of arrays (time, features).
-        """
-        len_samples = [el.shape[0] for el in data]
-        batch_size = len(len_samples)
-        t = max(len_samples)
-        k = data[0].shape[-1]
-        self.p = min(self.p, k*t, batch_size*t)
-        p = self.p
-        Xhi = build_xhi_matrix(data)
-        if self.A is not None:
-            # sn = self.tot_samples
-            # sm = sum(len_samples)
-            # # compute mean
-            # curr_mean = 0
-            # for ii in range(data.shape[0]):
-            #     el = data[ii]
-            #     curr_mean += el.shape[0] * np.mean(el, axis=0)
-            # curr_mean = curr_mean / sm
-            #
-            # # mean shift
-            # for i in range(len(data)):
-            #     data[i] = data[i] - curr_mean
-            #
-            # # update mean
-            # self.mean = sm / (sn + sm) * curr_mean + sn / (sn + sm) * self.mean
-
-            f_vt_s = self.forget_factor * self.vt.T * self.s.reshape(1, -1)
-            cat_usb = np.concatenate([f_vt_s, Xhi.T], axis=1)
-            L, X = la.qr(cat_usb, mode='full')
-            v_bar, s_bar, u_bar_t = la.svd(X, full_matrices=False)
-            v_bar = v_bar[:, :p]
-            s_bar = s_bar[:p]
-            u_bar_t = u_bar_t[:p, :]
-            a1, a2 = svd_sign_flip(u_bar_t.T, v_bar.T)
-            u_bar_t, v_bar = a1.T, a2.T
-
-            u_correction = np.zeros((self.u.shape[0] + Xhi.shape[0], self.u.shape[1] + Xhi.shape[0]))
-            u_correction[:self.u.shape[0], :self.u.shape[1]] = self.u
-            idxs_row = range(self.u.shape[0], self.u.shape[0] + Xhi.shape[0])
-            idxs_col = range(self.u.shape[1], self.u.shape[1] + Xhi.shape[0])
-            u_correction[idxs_row, idxs_col] = 1
-
-            u = u_correction @ u_bar_t.T[:, :self.p]
-            s = s_bar[:self.p]
-            vt = v_bar.T[:self.p, :] @ L.T
-
-            s[s < self.epsilon] = 0
-            inv_s = s.copy()
-            inv_s[s > self.epsilon] = 1 / s[s > self.epsilon]
-
-            ll = sum(len_samples)
-            Rho = np.zeros((p + ll, p + ll))
-            R = np.asarray(build_R(len_samples).todense())
-            Rho[:p, :p] = self.utRu
-            Rho[p:, p:] = R.T
-
-            Q = np.diag(s) @ u_bar_t @ Rho @ u_bar_t.T @ np.diag(inv_s)
-            utRu = u_bar_t @ Rho @ u_bar_t.T
-        else:
-            # sm = sum(len_samples)
-            # # compute mean
-            # curr_mean = 0
-            # for el in data:
-            #     curr_mean += el.shape[0] * np.mean(el, axis=0)
-            #
-            # # update mean
-            # self.mean = curr_mean / sm
-            #
-            # # mean shift
-            # for i in range(len(data)):
-            #     data[i] = data[i] - self.mean
-
-            u, s, vt = la.svd(Xhi, full_matrices=False)
-            u = u[:, :p]
-            s = s[:p]
-            vt = vt[:p, :]
-            u, vt = svd_sign_flip(u, vt)
-
-            R = build_R(len_samples)
-            R = np.asarray(R.todense())
-
-            s[s < self.epsilon] = 0
-            inv_s = s.copy()
-            inv_s[s > self.epsilon] = 1 / s[s > self.epsilon]
-            Q = np.diag(s) @ u.T @ R.T @ u @ np.diag(inv_s)
-            utRu = np.asarray(u.T @ R.T @ u)
-
-        self.tot_samples += sum(len_samples)
-        self.u, self.s, self.vt = u, s, vt
-        self.utRu = utRu
-        self.A = vt.T[:k, :].T
-        self.B = Q.T
-
-    def get_memory_states(self, x):
-        assert len(x.shape) == 3
-        x = x - self.mean
-        n = x.shape[1]
-        if self.A is None:
-            raise NotFittedError()
-
-        ys = []
-        y0 = np.zeros(self.p)
-        for i in range(n):
-            y0 = x[:, i, :] @ self.A.T + y0 @ self.B.T
-            ys.append(y0)
-        return np.stack(ys).transpose([1, 0, 2])
-
-    def decode_step(self, y):
-        assert len(y.shape) == 3  # (batch, time, features)
-        if self.A is None:
-            raise NotFittedError()
-
-        y_prev = np.zeros_like(y)
-        x_prev = []
-        for ti in range(y.shape[1]):
-            yi = y[:, ti, :]
-            x_prev.append(self.A.T @ yi.T + self.mean)
-            y_prev[:, ti, :] = yi @ self.B
-        return np.stack(x_prev).transpose([2, 0, 1]), y_prev

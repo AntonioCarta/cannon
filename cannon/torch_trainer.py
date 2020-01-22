@@ -207,12 +207,15 @@ class TorchTrainer:
             'vl_accs': self.val_metrics
         }
 
+        # TODO: rimuovere? pickle occupa tanto spazio ed è praticamente inutile
+        # perchè non è human readable.
         # save pickle checkpoint (if possible)
-        try:
-            with open(self.log_dir + 'checkpoint.pickle', 'wb') as f:
-                pickle.dump(d, f)
-        except BaseException as e:
-            self.logger.error(f"Could not save pickle checkpoint. {e}")
+        # try:
+        #     with open(self.log_dir + 'checkpoint.pickle', 'wb') as f:
+        #         pickle.dump(d, f)
+        # except BaseException as e:
+        #     self.logger.error(f"Could not save pickle checkpoint. {e}")
+
         # save JSON checkpoint
         # json_save_dict(d, self.log_dir + 'checkpoint.json')
         with open(self.log_dir + 'checkpoint.json', 'w') as f:
@@ -239,8 +242,8 @@ class TorchTrainer:
 
 
 class SequentialTaskTrainer(TorchTrainer):
-    def __init__(self, model, optimizer, n_epochs=100, log_dir=None, regularizers=None, callbacks=None, grad_clip=10):
-        super().__init__(model, n_epochs, log_dir)
+    def __init__(self, model, optimizer, n_epochs=100, log_dir=None, regularizers=None, callbacks=None, grad_clip=10, patience=5000):
+        super().__init__(model, n_epochs, log_dir, patience=patience)
         self.opt = optimizer
         self.grad_clip = grad_clip
         self.append_hyperparam_dict({

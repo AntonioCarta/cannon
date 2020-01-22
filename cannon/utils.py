@@ -15,7 +15,7 @@ ALLOW_CUDA = True  # Global variable to control cuda_move allocation behavior
 def standard_init(params):
     for p in params:
         if len(p.shape) == 2:
-            torch.nn.init.xavier_uniform_(p)
+            torch.nn.init.xavier_normal_(p)
 
 
 def deprecated(reason):
@@ -211,3 +211,31 @@ def log_dir_k(base_log_dir):
     while os.path.exists(base_log_dir + f'k_{i}'):
         i += 1
     return base_log_dir + f'k_{i}/'
+
+
+def print_dir_results(log_dir):
+    print(f"Reporting results in {log_dir}")
+    res = []
+    n = 0
+    best_n = -1
+    best_metric = -10 ** 10
+    best_text = "---"
+    for file in os.scandir(log_dir):
+        if os.path.isdir(file):
+            log_file = log_dir + file.name + '/output.log'
+            if not os.path.isfile(log_file):
+                continue
+            with open(log_file) as f:
+                lines = f.readlines()
+                if not 'TEST' in lines[-1]:
+                    continue
+                val_loss = float(lines[-4].split()[-1])
+                val_metric = float(lines[-3].split()[-1])
+                print(f"{file.name} -> {val_loss:.4f}, {val_metric:.4f}")
+                if val_metric > best_metric:
+                    best_metric = val_metric
+                    best_text = lines[-1]
+                    best_n = file.name
+    print("\nBEST MODEL:")
+    print(f"\t{best_n} -> {best_metric:.4f}")
+    print('\t' + best_text)
