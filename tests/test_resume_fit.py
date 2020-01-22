@@ -1,5 +1,5 @@
 import os
-from cannon.torch_model import TorchTrainer
+from cannon.torch_trainer import TorchTrainer
 from cannon.utils import cuda_move, set_gpu
 import torch
 from torch import nn

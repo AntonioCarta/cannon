@@ -1,5 +1,5 @@
 from cannon.utils import set_allow_cuda
-from cannon.rnn import LMNLayer
+from cannon.rnn_jit import LMNLayer
 from cannon.container import DiscreteRNN
 import torch
 

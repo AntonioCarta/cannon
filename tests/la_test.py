@@ -1,11 +1,12 @@
 import numpy as np
 import scipy.linalg as la
 
-from cannon.la.big_svd import SvdForBigData, Svd_single_column
+from cannon.laes.big_svd import SvdForBigData, Svd_single_column
 from cannon.tasks.dataset import mackey_glass
-from cannon.la.svd_la import LinearAutoencoder, IncrementalLinearAutoencoder, build_xhi_matrix
-from cannon.la.skl import svd_sign_flip
+from cannon.laes.svd_la import LinearAutoencoder, IncrementalLinearAutoencoder, build_xhi_matrix
+from cannon.laes.skl import svd_sign_flip
 from cannon.tasks import PianoRollData
+import fbpca
 
 
 def test_svd_single_column():
@@ -25,6 +26,10 @@ def test_svd_single_column():
     V, s, Uh = la.svd(xhi)
     reco_svd = (V[:, :p] @ np.diag(s[:p]) @ Uh[:p, :])[:, :reco_big.shape[1]]
     print("exact SVD error: {}".format(la.norm(xhi[:, :reco_big.shape[1]] - reco_svd) / la.norm(xhi[:, :reco_big.shape[1]])))
+
+    V, s, Uh = fbpca.pca(xhi, p, raw=True)
+    reco_svd = (V[:, :p] @ np.diag(s[:p]) @ Uh[:p, :])[:, :reco_big.shape[1]]
+    print("fbpca SVD error: {}".format(la.norm(xhi[:, :reco_big.shape[1]] - reco_svd) / la.norm(xhi[:, :reco_big.shape[1]])))
     # np.testing.assert_allclose(data, reco, rtol=1.e-5)
 
 

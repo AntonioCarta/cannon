@@ -6,7 +6,7 @@
 """
 from tasks import PianoRollData
 import numpy as np
-from cannon.la.svd_la import LinearAutoencoder
+from cannon.laes.svd_la import LinearAutoencoder
 import numpy.linalg as la
 import scipy.sparse as sparse
 import time
@@ -33,7 +33,7 @@ def Svd_single_column(data, n_components=10, verbose=False):
         sample_dim: dimension of a single slice.
         n_components: number of principal components to return as output.
     """
-    from cannon.la.big_svd import KeCSVD
+    from cannon.laes.big_svd import KeCSVD
     num_slices = max([len(el) for el in data])
     last_slice = get_Xi_block(data, num_slices)
 

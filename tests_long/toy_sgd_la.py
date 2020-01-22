@@ -1,5 +1,5 @@
 from sgd_la import *
-import cannon.la.svd_la as cla
+import cannon.laes.svd_la as cla
 import numpy as np
 
 

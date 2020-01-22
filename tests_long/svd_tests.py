@@ -2,7 +2,7 @@ import numpy as np
 import scipy.linalg as la
 from sklearn.decomposition import IncrementalPCA
 
-from cannon.la.skl import incremental_svd_cols, incremental_svd_rows, svd_sign_flip
+from cannon.laes.skl import incremental_svd_cols, incremental_svd_rows, svd_sign_flip
 
 
 def print_abs_error(u1, s1, v1, u2, s2, v2):
