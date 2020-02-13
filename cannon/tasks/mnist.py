@@ -3,7 +3,6 @@ import torch.nn.functional as F
 from torchvision import datasets
 import torch
 from cannon.utils import cuda_move
-from cannon.container import DiscreteRNN
 
 
 class MNISTDigit(Dataset):
@@ -24,11 +23,11 @@ class MNISTDigit(Dataset):
         raw_data = datasets.MNIST(data_dir, train=bool_train, download=True)
 
         if set_key == 'train':
-            self.data = raw_data.train_data[:50000]
-            self.labels = raw_data.train_labels[:50000]
+            self.data = raw_data.data[:50000]
+            self.labels = raw_data.targets[:50000]
         elif set_key == 'valid':
-            self.data = raw_data.train_data[50000:]
-            self.labels = raw_data.train_labels[50000:]
+            self.data = raw_data.data[50000:]
+            self.labels = raw_data.targets[50000:]
         elif set_key == 'test':
             self.data = raw_data.test_data
             self.labels = raw_data.test_labels

@@ -16,6 +16,8 @@ class PianoRollData(Dataset):
         self.ys = None
         self.load_data(fname, key)
         self.parse_raw_data()
+        self.loss_mean = torch.nn.BCEWithLogitsLoss(reduction='mean')
+        self.loss_sum = torch.nn.BCEWithLogitsLoss(reduction='sum')
 
     def __getitem__(self, i):
         return self.xs[i], self.ys[i]
@@ -65,15 +67,13 @@ class PianoRollData(Dataset):
             t_batch = cuda_move(t_batch)
             yield x, (y, t_batch)
 
-    def metric_score(self, y_pred, y_target):
+    def metric_score(self, batch, y_pred):
         """ Accuracy score. """
-        return -self.loss_score(y_pred, y_target)
+        return -self.loss_score(batch, y_pred)
 
-    def loss_score(self, y_pred, y_target):
+    def loss_score(self, batch, y_pred):
         assert len(y_pred.shape) == 3
-        assert (y_pred < 0).sum() == 0
-        assert (y_pred > 1).sum() == 0
-
+        x, y_target = batch
         y_true, t_batch = y_target
         yp = []
         yt = []
@@ -82,11 +82,12 @@ class PianoRollData(Dataset):
             yt.append(y_true[:t_batch[bi], bi])
         yp = torch.cat(yp, dim=0)
         yt = torch.cat(yt, dim=0)
-        err = F.binary_cross_entropy(yp, yt, reduction='mean')
+        err = self.loss_mean(yp, yt)
         return err
 
-    def summed_loss_score(self, y_pred, y_target):
+    def summed_loss_score(self, batch, y_pred):
         assert len(y_pred.shape) == 3
+        x, y_target = batch
         y_true, t_batch = y_target
         yp = []
         yt = []
@@ -95,23 +96,36 @@ class PianoRollData(Dataset):
             yt.append(y_true[:t_batch[bi], bi])
         yp = torch.cat(yp, dim=0)
         yt = torch.cat(yt, dim=0)
-        err = F.binary_cross_entropy(yp, yt, reduction='sum')
+        err = self.loss_sum(yp, yt)
         return err, yt.shape[0]
 
     @staticmethod
-    def frame_level_accuracy(y_out, target):
-        assert len(y_out.size()) == 2
-        y_out = (y_out > .5).float()
-        TP = torch.sum(target * y_out, dim=1)
-        FP = torch.sum((1 - target) * y_out, dim=1)
-        FN = torch.sum(target * (1 - y_out), dim=1)
+    def frame_level_accuracy(batch, y_pred):
+        assert len(y_pred.size()) == 3
+        x, y = batch
+        y_true, t_batch = y
 
-        den = (TP + FP + FN)
-        TP = TP[den > 0]
-        den = den[den > 0]
+        yp = []
+        yt = []
+        for bi in range(y_pred.shape[1]):
+            yp.append(y_pred[:t_batch[bi], bi])
+            yt.append(y_true[:t_batch[bi], bi])
+        yp = torch.cat(yp, dim=0)
+        yt = torch.cat(yt, dim=0)
 
-        acc = TP / den
-        return torch.mean(acc)
+        y_pred = (yp > .5).float()
+        TPt = torch.sum(yt * y_pred, dim=1)
+        FPt = torch.sum((1 - yt) * y_pred, dim=1)
+        FNt = torch.sum(yt * (1 - y_pred), dim=1)
+
+        num = TPt
+        den = (TPt + FPt + FNt)
+        num[den == 0] = 0  # gestire il caso in cui den=0, settando l'accuracy a zero (perchè implica TP=0)
+        den[den == 0] = 1
+
+        num = num.sum()
+        den = den.sum()
+        return (num / den) * yt.shape[0], yt.shape[0]
 
     def __str__(self):
         return "Data from {}. (key={})".format(self.fname, self.key)
