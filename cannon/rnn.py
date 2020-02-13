@@ -61,12 +61,12 @@ class LMNDetachCell(nn.Module):
         self.memory_size = memory_size
         self.p_detach = p_detach
         self.act = act
-        self.Wxh = nn.Parameter(torch.randn(hidden_size, in_size))
-        self.Whm = nn.Parameter(torch.randn(memory_size, hidden_size))
-        self.Wmm = nn.Parameter(torch.randn(memory_size, memory_size))
-        self.Wmh = nn.Parameter(torch.randn(hidden_size, memory_size))
-        self.bh = nn.Parameter(torch.randn(hidden_size))
-        self.bm = nn.Parameter(torch.randn(memory_size))
+        self.Wxh = nn.Parameter(torch.randn(hidden_size, in_size), requires_grad=True)
+        self.Whm = nn.Parameter(torch.randn(memory_size, hidden_size), requires_grad=True)
+        self.Wmm = nn.Parameter(torch.randn(memory_size, memory_size), requires_grad=True)
+        self.Wmh = nn.Parameter(torch.randn(hidden_size, memory_size), requires_grad=True)
+        self.bh = nn.Parameter(torch.randn(hidden_size), requires_grad=True)
+        self.bm = nn.Parameter(torch.randn(memory_size), requires_grad=True)
         for p in self.parameters():
             if len(p.shape) == 2:
                 torch.nn.init.xavier_normal_(p, gain=0.9)
@@ -186,21 +186,22 @@ class SequenceClassifier(nn.Module):
     def __init__(self, rnn_cell, hidden_size, output_size):
         super().__init__()
         self.rnn = rnn_cell
-        self.Wo = nn.Parameter(0.01 * torch.rand(output_size, hidden_size))
-        self.bo = nn.Parameter(0.01 * torch.rand(output_size))
-        torch.nn.init.xavier_normal_(self.Wo, gain=0.9)
+        self.ro = nn.Linear(hidden_size, output_size)
+        for p in self.ro.parameters():
+            if len(p.shape) == 2:
+                torch.nn.init.xavier_normal_(p)
 
     def forward(self, x):
         h0 = self.rnn.init_hidden(x.shape[1])
         h_last = self.rnn(x, h0)[0][-1]
-        y = torch.mm(h_last, self.Wo.t()) + self.bo
+        y = self.ro(h_last)
         return y
 
 
 class MIDILanguageModel(nn.Module):
-    def __init__(self, rnn_cell, hidden_size, output_size):
+    def __init__(self, rnn, hidden_size, output_size):
         super().__init__()
-        self.rnn = rnn_cell
+        self.rnn = rnn
         self.ro = nn.Linear(hidden_size, output_size)
         for p in self.ro.parameters():
             if len(p.shape) == 2:
@@ -210,5 +211,5 @@ class MIDILanguageModel(nn.Module):
         h0 = self.rnn.init_hidden(x.shape[1])
         h_seq = self.rnn(x, h0)[0]
         self._act_list = h_seq
-        y = torch.sigmoid(self.ro(h_seq))
+        y = self.ro(h_seq)
         return y

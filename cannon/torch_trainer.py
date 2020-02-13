@@ -261,10 +261,11 @@ class SequentialTaskTrainer(TorchTrainer):
             acc = 0
             bi = 0
             for xi, yi in tqdm(data.iter()):
+                assert len(xi.shape) == 3
                 y_pred = self.model(xi)
-                err += data.loss_score(y_pred, yi)
-                acc += data.metric_score(y_pred, yi)
-                bi += 1
+                err += xi.shape[1] * data.loss_score(y_pred, yi)
+                acc += xi.shape[1] * data.metric_score(y_pred, yi)
+                bi += xi.shape[1]
             err = err / bi
             acc = acc / bi
 

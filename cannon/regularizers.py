@@ -23,3 +23,19 @@ class OrthogonalPenalty:
 
     def __str__(self):
         return f"OrthogonalPenalty({self.alpha})"
+
+
+class ActivationNormPreservingRegularizer:
+    def __init__(self, alpha):
+        assert alpha >= 0
+        self.alpha = alpha
+
+    def __call__(self, model, x, y):
+        na = torch.norm(model._act_list, dim=2)
+        x = na[1:] - na[:-1]
+        x = x * x
+        x = torch.sum(x) / (na.shape[0] - 1)
+        return self.alpha * x
+
+    def __str__(self):
+        return f"ActivationNormPreservingRegularizer({self.alpha})"
