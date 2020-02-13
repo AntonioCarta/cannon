@@ -1,1 +1,2 @@
 from .sgd_la import SequentialLinearAutoencoderCell
+from .svd_la import LinearAutoencoder

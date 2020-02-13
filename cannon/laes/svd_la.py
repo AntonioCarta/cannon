@@ -5,6 +5,100 @@ from sklearn.exceptions import NotFittedError
 import pickle
 import math
 import fbpca
+from numba import njit, prange
+from scipy.sparse import linalg as splinalg
+
+
+@njit(fastmath=True)
+def xi_seq_rmatvec(seq, v, res=None):
+    """ Implicit matrix multiplication Xi_seq.T @ v
+    Args
+        seq: single sequence [time x features]
+        v: vector [features,]
+        res: resulting vector
+    Returns:
+        Xi_seq @ v
+    """
+    t, f = seq.shape
+    assert v.shape[0] == t
+    if res is None:
+        res = np.zeros(t*f)
+    for iit in prange(t):
+        tmp = (seq[:t-iit].T @ v[iit:]).reshape(-1)
+        res[f*iit: f*iit+f] += tmp
+    return res
+
+
+@njit(fastmath=True, parallel=True)
+def xi_data_rmatvec(data, v):
+    """ Implicit matrix multiplication Xi_data.T @ v
+    Args
+        data: list of sequences [time x features]
+        v: vector [features,]
+    Returns:
+        Xi_data @ v
+    """
+    len_samples = np.asarray([data[i].shape[0] for i in range(len(data))])
+    len_max = max(len_samples)
+    res = np.zeros(len_max*data[0].shape[1])
+    curr_idx = 0
+    for i in range(len(data)):
+        seq = data[i]
+        t_seq, f = seq.shape
+        xi_seq_rmatvec(seq, v[curr_idx: curr_idx+t_seq], res)
+        curr_idx += t_seq
+    assert curr_idx == np.sum(len_samples)
+    return res
+
+
+@njit(fastmath=True)
+def xi_seq_matvec(seq, v1, res=None):
+    """ Implicit matrix multiplication Xi_seq @ v
+    Args
+        seq: single sequence [time x features]
+        v: vector [features,]
+    Returns:
+        Xi_seq @ v
+    """
+    t, f = seq.shape
+    assert v1.shape[0] == t*f
+    v = v1.reshape(t, f)
+    if res is None:
+        res = np.zeros(t)
+    for iiv in range(v.shape[0]):
+        res[iiv] = 0
+        for k in range(iiv + 1):
+            res[iiv] += seq[iiv - k].T @ v[k]
+    return res
+
+
+@njit(fastmath=True, parallel=False)
+def xi_data_matvec(data, v):
+    """ Implicit matrix multiplication Xi_data @ v
+    Args
+        data: list of sequences [time x features]
+        v: vector [features,]
+    Returns:
+        Xi_data @ v
+    """
+    len_samples = np.asarray([data[i].shape[0] for i in range(len(data))])
+    sum_len = np.sum(len_samples)
+    res = np.zeros(sum_len)
+
+    curr_idx = 0
+    idxs = []
+    for i in range(len(data)):
+        idxs.append(curr_idx)
+        t_seq, _ = data[i].shape
+        curr_idx += t_seq
+
+    for i in prange(len(data)):
+        curr_idx = idxs[i]
+        seq = data[i]
+        t_seq, f = seq.shape
+        xi_seq_matvec(seq, v[:t_seq*f], res[curr_idx: curr_idx+t_seq])
+    return res
+
 
 def get_Xi_block(data, n_block):
     len_samples = [len(el) for el in data]
@@ -13,8 +107,7 @@ def get_Xi_block(data, n_block):
 
     sum_prev_samples = 0
     for sample_i, sample in enumerate(data):
-        for t_step in range(len(sample) - n_block):
-            Xhii[sum_prev_samples + t_step + n_block, :] = sample[t_step]
+        Xhii[sum_prev_samples + n_block: sum_prev_samples + sample.shape[0]] = sample[:len(sample) - n_block]
         sum_prev_samples += len_samples[sample_i]
     return Xhii
 
@@ -52,7 +145,7 @@ def Svd_single_column(data, n_components=10, k=1, verbose=False):
     if verbose:
         print("slice: ", num_slices - remaining, " to ", num_slices - 1)
     # compute svd for the last slice, and then repeat this process for each slice concatenated with the previous result.
-    v, s, u_t = KeCSVD(last_slice, n_components)
+    v, s, u_t = KeCoSVD(last_slice, n_components)
     del last_slice
     for i in reversed(range(0, num_slices - remaining, k)):
         curr_vs = v @ s
@@ -63,7 +156,7 @@ def Svd_single_column(data, n_components=10, k=1, verbose=False):
             print("slice: ", i, " to ", i + k - 1)
 
         curr_vs = np.hstack((curr_slice, curr_vs))
-        v, s, u_t = KeCSVD(curr_vs, n_components)
+        v, s, u_t = KeCoSVD(curr_vs, n_components)
         del curr_vs
     return v, s, u_t
 
@@ -73,7 +166,7 @@ def indirectSVD(M, p):
     SVD decomposition.
 
     Args:
-        M: sparse input matrix
+        M: input matrix
         p: number of principal components.
     """
     Q, R = np.linalg.qr(M)
@@ -83,13 +176,10 @@ def indirectSVD(M, p):
     s = s[0:p]
     v = v[:, 0:p]
     u_t = u_t[0:p, :]
-
-    s = sparse.csc_matrix((s.tolist(), (range(s.shape[0]), range(s.shape[0]))), shape=(v.shape[1], u_t.shape[0]))
-    s = s.todense()
-    return v, s, u_t
+    return v, np.diag(s), u_t
 
 
-def KeCSVD(M, p=10, min_sigma=0.000001):
+def KeCoSVD(M, p=10, min_sigma=0.000001):
     c = 0
     if M.shape[0] <= M.shape[1]:
         # svd on kernel matrix
@@ -98,7 +188,7 @@ def KeCSVD(M, p=10, min_sigma=0.000001):
         s = np.sqrt(Ssqr)
         u_t = np.linalg.pinv(s) @ v.transpose() @ M
     else:
-        # svd on convariance matrix
+        # svd on covariance matrix
         Cov = M.transpose() @ M
         _, Ssqr, u_t = indirectSVD(Cov, p)
         s = np.sqrt(Ssqr)
@@ -116,7 +206,7 @@ def KeCSVD(M, p=10, min_sigma=0.000001):
     return v, s, u_t
 
 
-def build_xhi_matrix(data):
+def build_xhi_matrix(data, verbose=True):
     """ Create the Xhi matrix (as a dense matrix).
     Args:
         data: list of sequences (even with different lengths)
@@ -131,7 +221,7 @@ def build_xhi_matrix(data):
 
     sum_prev_samples = 0
     for sample_i, sample in enumerate(data):
-        if sample_i % 100 == 0:
+        if sample_i % 100 == 0 and verbose:
             print(f"sample {sample_i}")
         for t_step in range(len(sample)):
             it = min(len(sample) - t_step, max_len)
@@ -223,7 +313,8 @@ class LinearAutoencoder:
         Args:
             data: list of sequences (possibly with different lengths)
         """
-        print(f"svd_algo = {svd_algo}")
+        if verbose:
+            print(f"svd_algo = {svd_algo}")
         if self.A is not None:
             print("linear autoencoder has been already trained.")
 
@@ -245,17 +336,26 @@ class LinearAutoencoder:
             for i in range(len(data)):
                 data[i] = data[i] - self.mean
 
-        print("computing SVD decomposition.")
+        if verbose:
+            print("computing SVD decomposition.")
 
         if svd_algo == 'cols':
             V, s, Uh = Svd_single_column(data, self.p, k=approx_k, verbose=verbose)
             s = np.diag(s).copy()
         elif svd_algo == 'exact':
-            data = build_xhi_matrix(data)
+            data = build_xhi_matrix(data, verbose)
             V, s, Uh = la.svd(data, full_matrices=False)
         elif svd_algo == 'fb_pca':
-            data = build_xhi_matrix(data)
+            data = build_xhi_matrix(data, verbose)
             V, s, Uh = fbpca.pca(data, k=p, raw=True, n_iter=5)
+        elif svd_algo == 'sparse_exact':
+            dim_x = data[0].shape[1]
+            t_max = max(len_samples)
+            t_sum = sum(len_samples)
+            linop = splinalg.LinearOperator((t_sum, t_max * dim_x),
+                                            matvec=lambda v: xi_data_matvec(data, v),
+                                            rmatvec=lambda v: xi_data_rmatvec(data, v))
+            V, s, Uh = splinalg.svds(linop, k=self.p)
         else:
             assert False
 
@@ -293,7 +393,7 @@ class LinearAutoencoder:
                 hist.append(y0)
 
         if save_history:
-            return np.vstack(hist)
+            return np.stack(hist, axis=1)
         else:
             return y0
 
