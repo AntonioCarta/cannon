@@ -38,10 +38,17 @@ def build_default_logger(log_dir: str, debug=False) -> Logger:
 class TorchTrainer:
     def __init__(self, model: nn.Module, n_epochs: int=100, log_dir: str=None, callbacks=None, patience: int=5000,
                  verbose=True, logger=None, validation_steps=1, checkpoint_mode='loss', debug=False):
-        assert checkpoint_mode in {'loss', 'metric'}
+        assert checkpoint_mode in {'loss', 'metric', None}
         self.checkpoint_mode = checkpoint_mode
         self.debug = debug
-        self.is_improved_performance = TorchTrainer._is_improved_metric if checkpoint_mode == 'metric' else TorchTrainer._is_improved_loss
+        if checkpoint_mode == 'loss':
+            self.is_improved_performance = TorchTrainer._is_improved_loss
+        elif checkpoint_mode == 'metric':
+            self.is_improved_performance = TorchTrainer._is_improved_metric
+        elif checkpoint_mode is None:
+            self.is_improved_performance = lambda x: True
+        else:
+            assert False
         self.model = cuda_move(model)
         self.n_epochs = n_epochs
         self.log_dir = log_dir
@@ -49,9 +56,10 @@ class TorchTrainer:
         self.callbacks = [] if callbacks is None else callbacks
         self.callbacks.extend([
             EarlyStoppingCallback(patience),
-            ModelCheckpoint(log_dir),
             LearningCurveCallback()
         ])
+        if checkpoint_mode is not None:
+            self.callbacks.append(ModelCheckpoint(log_dir))
         self._init_fit_history()
         self.logger = logger
         self.validation_steps = validation_steps
@@ -206,18 +214,7 @@ class TorchTrainer:
             'tr_accs': self.train_metrics,
             'vl_accs': self.val_metrics
         }
-
-        # TODO: rimuovere? pickle occupa tanto spazio ed è praticamente inutile
-        # perchè non è human readable.
-        # save pickle checkpoint (if possible)
-        # try:
-        #     with open(self.log_dir + 'checkpoint.pickle', 'wb') as f:
-        #         pickle.dump(d, f)
-        # except BaseException as e:
-        #     self.logger.error(f"Could not save pickle checkpoint. {e}")
-
         # save JSON checkpoint
-        # json_save_dict(d, self.log_dir + 'checkpoint.json')
         with open(self.log_dir + 'checkpoint.json', 'w') as f:
             json.dump(d, f, indent=4, default=lambda x: str(x))
 
@@ -242,8 +239,8 @@ class TorchTrainer:
 
 
 class SequentialTaskTrainer(TorchTrainer):
-    def __init__(self, model, optimizer, n_epochs=100, log_dir=None, regularizers=None, callbacks=None, grad_clip=10, patience=5000):
-        super().__init__(model, n_epochs, log_dir, patience=patience)
+    def __init__(self, model, optimizer, n_epochs=100, log_dir=None, regularizers=None, callbacks=None, grad_clip=10, patience=5000, **kwargs):
+        super().__init__(model, n_epochs, log_dir, patience=patience, **kwargs)
         self.opt = optimizer
         self.grad_clip = grad_clip
         self.append_hyperparam_dict({
