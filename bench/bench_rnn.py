@@ -12,13 +12,55 @@
     SlowLSTM min: 0.00317, mean: 0.00329, n_trials: 10
 """
 from cannon.utils import set_allow_cuda, set_gpu, cuda_move, timeit
-from cannon.rnn import RNNLayer, LMNLayer
+from cannon.rnn_jit import RNNLayer, LMNLayer
 from cannon.container import DiscreteRNN
 import torch
 import torch
 from torch import nn
 import torch.nn.functional as F
 from cannon.utils import cuda_move
+from torch import jit
+from cannon.rnn_jit import LinearMemoryNetwork
+from torch.jit import Tensor
+
+
+class JitSlowLMNLayer(jit.ScriptModule):
+    def __init__(self, in_size, hidden_size, memory_size, act=torch.tanh, out_hidden=False):
+        super().__init__()
+        self.layer = LinearMemoryNetwork(in_size, hidden_size, memory_size, act=act, out_hidden=out_hidden)
+
+    @jit.script_method
+    def init_hidden(self, batch_size: int) -> Tensor:
+        return self.layer.init_hidden(batch_size)
+
+    @jit.script_method
+    def forward(self, x, m_prev):
+        assert len(x.shape) == 3
+        out = []
+        x = x.unbind(0)
+        for t in range(len(x)):
+            xt = x[t]
+            h_prev, m_prev = self.layer(xt, m_prev)
+            out.append(h_prev)
+        return torch.stack(out), m_prev
+
+    @jit.script_method
+    def hidden_reconstruction(self, x):
+        assert len(x.shape) == 3
+        m_prev = self.init_hidden(x.shape[1])
+        hl = []
+        x = x.unbind(0)
+        # encode
+        for t in range(len(x)):
+            xt = x[t]
+            h_prev, m_prev = self.layer.encode(xt, m_prev)
+            hl.append(h_prev.detach())
+        # decode
+        reco = []
+        for t in range(len(x)):
+            h_prev, m_prev = self.decoder(m_prev)
+            reco = [h_prev] + reco
+        return torch.stack(hl, dim=0), torch.stack(reco, dim=0)
 
 
 class SlowDiscreteRNN(nn.Module):
@@ -119,6 +161,13 @@ def bench():
     foo = lambda: model(fake_input)
     timeit(foo, n_trials)
 
+    print("JitSlowLMN ", end='')
+    rnn = LMNLayer(100, 100, 100)
+    model = cuda_move(DiscreteRNN(F, F, 100, rnn=rnn))
+    model(fake_input)
+    foo = lambda: model(fake_input)
+    timeit(foo, n_trials)
+
     print("SlowLMN ", end='')
     rnn = SlowLMNLayer(100, 100, 100)
     model = cuda_move(SlowDiscreteRNN(F, F, 100, rnn=rnn))
@@ -132,3 +181,7 @@ def bench():
     model(fake_input)
     foo = lambda: model(fake_input)
     timeit(foo, n_trials)
+
+
+if __name__ == '__main__':
+    bench()
