@@ -81,8 +81,7 @@ def set_gpu():
     try:
         import gpustat
     except ImportError as e:
-        print("gpustat module is not installed.")
-        raise e
+        print("gpustat module is not installed. No GPU allocated.")
 
     try:
         stats = gpustat.GPUStatCollection.new_query()
@@ -239,3 +238,29 @@ def print_dir_results(log_dir):
     print("\nBEST MODEL:")
     print(f"\t{best_n} -> {best_metric:.4f}")
     print('\t' + best_text)
+
+
+def count_lstm_parameters(x, h):
+    return 4 * (x*h + h*h + h)
+
+def count_lmn_parameters(x, h, m):
+    p_fun = x*h + h*m + h
+    p_mem = h*m + m*m + m
+    return p_fun + p_mem
+
+
+def count_mslmn_parameters(i, h, m, num_modules):
+    pp = 0
+    m_tot = num_modules * m
+    pp += (i + m_tot) * h + h
+    pp += h * m_tot + m_tot
+    for k in range(num_modules):
+        pp += m * k * m
+    return pp
+
+
+def count_cwrnn_parameters(i, h, num_modules):
+    pp = 0
+    for k in range(num_modules):
+        pp += h * (k + 1) * h + i*h + h
+    return pp

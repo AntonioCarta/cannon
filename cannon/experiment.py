@@ -51,6 +51,8 @@ class Experiment:
         self.foo(config)
         self.experiment_log.info("Experiment terminated.")
 
+
+
     def foo(self, config=None):
         raise NotImplementedError()
 

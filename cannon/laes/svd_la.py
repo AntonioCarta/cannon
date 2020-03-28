@@ -5,99 +5,105 @@ from sklearn.exceptions import NotFittedError
 import pickle
 import math
 import fbpca
-from numba import njit, prange
+try:
+    from numba import njit, prange
+    is_numba_available = True
+except ImportError:
+    print("Numba not installed.")
+    is_numba_available = False
 from scipy.sparse import linalg as splinalg
 
 
-@njit(fastmath=True)
-def xi_seq_rmatvec(seq, v, res=None):
-    """ Implicit matrix multiplication Xi_seq.T @ v
-    Args
-        seq: single sequence [time x features]
-        v: vector [features,]
-        res: resulting vector
-    Returns:
-        Xi_seq @ v
-    """
-    t, f = seq.shape
-    assert v.shape[0] == t
-    if res is None:
-        res = np.zeros(t*f)
-    for iit in prange(t):
-        tmp = (seq[:t-iit].T @ v[iit:]).reshape(-1)
-        res[f*iit: f*iit+f] += tmp
-    return res
+if is_numba_available:
+    @njit(fastmath=True)
+    def xi_seq_rmatvec(seq, v, res=None):
+        """ Implicit matrix multiplication Xi_seq.T @ v
+        Args
+            seq: single sequence [time x features]
+            v: vector [features,]
+            res: resulting vector
+        Returns:
+            Xi_seq @ v
+        """
+        t, f = seq.shape
+        assert v.shape[0] == t
+        if res is None:
+            res = np.zeros(t*f)
+        for iit in prange(t):
+            tmp = (seq[:t-iit].T @ v[iit:]).reshape(-1)
+            res[f*iit: f*iit+f] += tmp
+        return res
 
 
-@njit(fastmath=True, parallel=True)
-def xi_data_rmatvec(data, v):
-    """ Implicit matrix multiplication Xi_data.T @ v
-    Args
-        data: list of sequences [time x features]
-        v: vector [features,]
-    Returns:
-        Xi_data @ v
-    """
-    len_samples = np.asarray([data[i].shape[0] for i in range(len(data))])
-    len_max = max(len_samples)
-    res = np.zeros(len_max*data[0].shape[1])
-    curr_idx = 0
-    for i in range(len(data)):
-        seq = data[i]
-        t_seq, f = seq.shape
-        xi_seq_rmatvec(seq, v[curr_idx: curr_idx+t_seq], res)
-        curr_idx += t_seq
-    assert curr_idx == np.sum(len_samples)
-    return res
+    @njit(fastmath=True, parallel=True)
+    def xi_data_rmatvec(data, v):
+        """ Implicit matrix multiplication Xi_data.T @ v
+        Args
+            data: list of sequences [time x features]
+            v: vector [features,]
+        Returns:
+            Xi_data @ v
+        """
+        len_samples = np.asarray([data[i].shape[0] for i in range(len(data))])
+        len_max = max(len_samples)
+        res = np.zeros(len_max*data[0].shape[1])
+        curr_idx = 0
+        for i in range(len(data)):
+            seq = data[i]
+            t_seq, f = seq.shape
+            xi_seq_rmatvec(seq, v[curr_idx: curr_idx+t_seq], res)
+            curr_idx += t_seq
+        assert curr_idx == np.sum(len_samples)
+        return res
 
 
-@njit(fastmath=True)
-def xi_seq_matvec(seq, v1, res=None):
-    """ Implicit matrix multiplication Xi_seq @ v
-    Args
-        seq: single sequence [time x features]
-        v: vector [features,]
-    Returns:
-        Xi_seq @ v
-    """
-    t, f = seq.shape
-    assert v1.shape[0] == t*f
-    v = v1.reshape(t, f)
-    if res is None:
-        res = np.zeros(t)
-    for iiv in range(v.shape[0]):
-        res[iiv] = 0
-        for k in range(iiv + 1):
-            res[iiv] += seq[iiv - k].T @ v[k]
-    return res
+    @njit(fastmath=True)
+    def xi_seq_matvec(seq, v1, res=None):
+        """ Implicit matrix multiplication Xi_seq @ v
+        Args
+            seq: single sequence [time x features]
+            v: vector [features,]
+        Returns:
+            Xi_seq @ v
+        """
+        t, f = seq.shape
+        assert v1.shape[0] == t*f
+        v = v1.reshape(t, f)
+        if res is None:
+            res = np.zeros(t)
+        for iiv in range(v.shape[0]):
+            res[iiv] = 0
+            for k in range(iiv + 1):
+                res[iiv] += seq[iiv - k].T @ v[k]
+        return res
 
 
-@njit(fastmath=True, parallel=False)
-def xi_data_matvec(data, v):
-    """ Implicit matrix multiplication Xi_data @ v
-    Args
-        data: list of sequences [time x features]
-        v: vector [features,]
-    Returns:
-        Xi_data @ v
-    """
-    len_samples = np.asarray([data[i].shape[0] for i in range(len(data))])
-    sum_len = np.sum(len_samples)
-    res = np.zeros(sum_len)
+    @njit(fastmath=True, parallel=False)
+    def xi_data_matvec(data, v):
+        """ Implicit matrix multiplication Xi_data @ v
+        Args
+            data: list of sequences [time x features]
+            v: vector [features,]
+        Returns:
+            Xi_data @ v
+        """
+        len_samples = np.asarray([data[i].shape[0] for i in range(len(data))])
+        sum_len = np.sum(len_samples)
+        res = np.zeros(sum_len)
 
-    curr_idx = 0
-    idxs = []
-    for i in range(len(data)):
-        idxs.append(curr_idx)
-        t_seq, _ = data[i].shape
-        curr_idx += t_seq
+        curr_idx = 0
+        idxs = []
+        for i in range(len(data)):
+            idxs.append(curr_idx)
+            t_seq, _ = data[i].shape
+            curr_idx += t_seq
 
-    for i in prange(len(data)):
-        curr_idx = idxs[i]
-        seq = data[i]
-        t_seq, f = seq.shape
-        xi_seq_matvec(seq, v[:t_seq*f], res[curr_idx: curr_idx+t_seq])
-    return res
+        for i in prange(len(data)):
+            curr_idx = idxs[i]
+            seq = data[i]
+            t_seq, f = seq.shape
+            xi_seq_matvec(seq, v[:t_seq*f], res[curr_idx: curr_idx+t_seq])
+        return res
 
 
 def get_Xi_block(data, n_block):
@@ -107,7 +113,8 @@ def get_Xi_block(data, n_block):
 
     sum_prev_samples = 0
     for sample_i, sample in enumerate(data):
-        Xhii[sum_prev_samples + n_block: sum_prev_samples + sample.shape[0]] = sample[:len(sample) - n_block]
+        if len(sample) - n_block > 0:
+            Xhii[sum_prev_samples + n_block: sum_prev_samples + sample.shape[0]] = sample[:len(sample) - n_block]
         sum_prev_samples += len_samples[sample_i]
     return Xhii
 
@@ -306,7 +313,7 @@ class LinearAutoencoder:
         self.mean = 0.0
         self.sigma = None
 
-    def fit(self, data, svd_algo='fb_pca', approx_k=1, verbose=False):
+    def fit(self, data, svd_algo='fb_pca', approx_k=1, t_max=None, verbose=False):
         """
         Fit the Linear Autoencoder using SVD-based training.
 
@@ -318,6 +325,11 @@ class LinearAutoencoder:
         if self.A is not None:
             print("linear autoencoder has been already trained.")
 
+        if t_max:
+            new_data = []
+            for el in data:
+                new_data.append(el[:t_max])
+            data = new_data
         len_samples = [len(el) for el in data]
         batch_size = len(len_samples)
         n = data[0].shape[0]
