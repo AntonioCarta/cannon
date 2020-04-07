@@ -38,3 +38,22 @@ class Dataset:
     def visualize_sample(self, x, y):
         """ Single sample visualization. Batch dimension must be removed. """
         print("Sample visualization not implemented for the current class.")
+
+
+class AutoencodingData(Dataset):
+    def __init__(self, data):
+        """
+        A generic class to transform a dataset into an input autoencoding problem.
+
+        Args:
+            data:
+        """
+        super().__init__()
+        self.data = data
+
+    def iter(self):
+        for batch in self.data.iter():
+            yield batch
+
+    def loss_score(self, batch, y_pred):
+        return F.mse_loss(batch[0], y_pred)
