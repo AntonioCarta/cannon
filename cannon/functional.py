@@ -6,3 +6,6 @@ def selu(x):
     scale = 1.0507009873554804934193349852946
     return scale * F.elu(x, alpha)
 
+
+def identity(x):
+    return x

@@ -185,6 +185,17 @@ def timeit(foo, n_trials):
     print("min: {:.5f}, mean: {:.5f}, n_trials: {}".format(t_min, t_mean, n_trials))
 
 
+def timeit_best(foo, n_trials):
+    times = []
+    for _ in range(n_trials):
+        start = time.time()
+        foo()
+        end = time.time()
+        t = end - start
+        times.append(t)
+    return min(times)
+
+
 def load_dir_results(log_dir):
     print(f"Reporting results in {log_dir}")
     res = []

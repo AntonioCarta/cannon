@@ -33,28 +33,6 @@ class LinearMemoryNetwork(nn.Module):
         return out, m_curr
 
 
-class LMNLayer(nn.Module):
-    def __init__(self, in_size, hidden_size, memory_size, act=torch.tanh):
-        super().__init__()
-        self.layer = LinearMemoryNetwork(in_size, hidden_size, memory_size, act=act)
-        for p in self.parameters():
-            if len(p.shape) == 2:
-                torch.nn.init.xavier_normal_(p, gain=0.9)
-
-    def init_hidden(self, batch_size: int) -> Tensor:
-        return self.layer.init_hidden(batch_size)
-
-    def forward(self, x, m_prev):
-        assert len(x.shape) == 3
-        out = []
-        x = x.unbind(0)
-        for t in range(len(x)):
-            xt = x[t]
-            h_prev, m_prev = self.layer(xt, m_prev)
-            out.append(h_prev)
-        return torch.stack(out), m_prev
-
-
 class LMNDetachCell(nn.Module):
     def __init__(self, in_size, hidden_size, memory_size, p_detach, act=torch.tanh):
         super().__init__()
@@ -84,27 +62,25 @@ class LMNDetachCell(nn.Module):
         return m_curr, m_curr
 
 
-class LMNDetachLayer(nn.Module):
-    def __init__(self, in_size, hidden_size, memory_size, p_detach, act=torch.tanh):
+class RNNCell(nn.Module):
+    def __init__(self, in_size, hidden_size, act=torch.tanh):
         super().__init__()
-        self.layer = LMNDetachCell(in_size, hidden_size, memory_size, p_detach, act=act)
-        self.p_detach = p_detach
+        self.hidden_size = hidden_size
+        self.act = act
+        self.Wxh = nn.Parameter(torch.randn(hidden_size, in_size))
+        self.Whh = nn.Parameter(torch.randn(hidden_size, hidden_size))
+        self.bh = nn.Parameter(torch.randn(hidden_size))
         for p in self.parameters():
             if len(p.shape) == 2:
-                torch.nn.init.xavier_normal_(p, gain=0.9)
+                torch.nn.init.xavier_normal_(p)
 
     def init_hidden(self, batch_size: int) -> Tensor:
-        return self.layer.init_hidden(batch_size)
+        return torch.zeros(batch_size, self.hidden_size, device=self.Wxh.device)
 
-    def forward(self, x, m_prev):
-        assert len(x.shape) == 3
-        out = []
-        x = x.unbind(0)
-        for t in range(len(x)):
-            xt = x[t]
-            h_prev, m_prev = self.layer(xt, m_prev)
-            out.append(h_prev)
-        return torch.stack(out), m_prev
+    def forward(self, x_prev, m_prev):
+        assert len(x_prev.shape) == 2
+        h_curr = self.act(torch.mm(x_prev, self.Wxh.t()) + torch.mm(m_prev, self.Whh.t()) + self.bh)
+        return h_curr, h_curr
 
 
 class LSTMCell(nn.Module):
@@ -139,23 +115,52 @@ class LSTMCell(nn.Module):
         return hy, (hy, cy)
 
 
-class LSTMLayer(nn.Module):
-    def __init__(self, in_size, hidden_size):
+class RecurrentLayer(nn.Module):
+    def __init__(self, layer):
+        """
+        Generic RNN layer. Takes an entire sequence as input, while cells take a single item.
+        Args:
+            layer: recurrent cell
+        """
         super().__init__()
-        self.layer = LSTMCell(in_size, hidden_size)
+        self.layer = layer
 
-    def init_hidden(self, batch_size: int) -> Tuple[Tensor, Tensor]:
+    def init_hidden(self, batch_size: int) -> Tensor:
         return self.layer.init_hidden(batch_size)
 
-    def forward(self, x: Tensor, prev_state: Tuple[Tensor, Tensor]) -> Tuple[Tensor, Tuple[Tensor, Tensor]]:
+    def forward(self, x, m_prev):
         assert len(x.shape) == 3
         out = []
         x = x.unbind(0)
         for t in range(len(x)):
             xt = x[t]
-            h_prev, prev_state = self.layer(xt, prev_state)
+            h_prev, m_prev = self.layer(xt, m_prev)
             out.append(h_prev)
-        return torch.stack(out), prev_state
+        return torch.stack(out), m_prev
+
+
+class LMNDetachLayer(RecurrentLayer):
+    def __init__(self, in_size, hidden_size, memory_size, p_detach, act=torch.tanh):
+        layer = LMNDetachCell(in_size, hidden_size, memory_size, p_detach, act=act)
+        super().__init__(layer)
+
+
+class LMNLayer(RecurrentLayer):
+    def __init__(self, in_size, hidden_size, memory_size, act=torch.tanh):
+        layer = LinearMemoryNetwork(in_size, hidden_size, memory_size, act=act)
+        super().__init__(layer)
+
+
+class RNNLayer(RecurrentLayer):
+    def __init__(self, in_size, hidden_size, act=torch.tanh):
+        layer = RNNCell(in_size, hidden_size, act=act)
+        super().__init__(layer)
+
+
+class LSTMLayer(RecurrentLayer):
+    def __init__(self, in_size, hidden_size):
+        layer = LSTMCell(in_size, hidden_size)
+        super().__init__(layer)
 
 
 class LSTMDetachLayer(nn.Module):
@@ -198,7 +203,7 @@ class SequenceClassifier(nn.Module):
         return y
 
 
-class MIDILanguageModel(nn.Module):
+class ItemClassifier(nn.Module):
     def __init__(self, rnn, hidden_size, output_size):
         super().__init__()
         self.rnn = rnn
