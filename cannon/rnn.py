@@ -84,7 +84,7 @@ class RNNCell(nn.Module):
 
 
 class LSTMCell(nn.Module):
-    def __init__(self, in_size, hidden_size):
+    def __init__(self, in_size, hidden_size, fbias=0.0):
         """ source: https://github.com/pytorch/benchmark/blob/master/rnns/fastrnns/custom_lstms.py """
         super(LSTMCell, self).__init__()
         self.input_size = in_size
@@ -93,6 +93,12 @@ class LSTMCell(nn.Module):
         self.weight_hh = nn.Parameter(0.01 * torch.randn(4 * hidden_size, hidden_size))
         self.bias_ih = nn.Parameter(0.01 * torch.randn(4 * hidden_size))
         self.bias_hh = nn.Parameter(0.01 * torch.randn(4 * hidden_size))
+
+        with torch.no_grad():  # forget bias initialization
+            mask = torch.zeros_like(self.bias_hh)
+            mask[hidden_size: 2*hidden_size] = 1  # ingate, forgetgate, cellgate, outgate
+            self.bias_hh.masked_fill_(mask == 1, fbias)
+        assert self.bias_hh.is_leaf
 
     def init_hidden(self, batch_size: int) -> Tuple[Tensor, Tensor]:
         return (torch.zeros(batch_size, self.hidden_size, device=self.weight_ih.device),
@@ -158,8 +164,8 @@ class RNNLayer(RecurrentLayer):
 
 
 class LSTMLayer(RecurrentLayer):
-    def __init__(self, in_size, hidden_size):
-        layer = LSTMCell(in_size, hidden_size)
+    def __init__(self, in_size, hidden_size, fbias=0.0):
+        layer = LSTMCell(in_size, hidden_size, fbias=fbias)
         super().__init__(layer)
 
 
