@@ -36,7 +36,7 @@ def build_default_logger(log_dir: str, debug=False) -> Logger:
 
 
 class TorchTrainer:
-    def __init__(self, model: nn.Module, n_epochs: int=100, log_dir: str=None, callbacks=None, patience: int=5000,
+    def __init__(self, model: nn.Module, n_epochs: int = 100, log_dir: str = None, callbacks=None, patience: int = 5000,
                  verbose=True, logger=None, validation_steps=1, checkpoint_mode='loss', debug=False):
         assert checkpoint_mode in {'loss', 'metric', None}
         self.checkpoint_mode = checkpoint_mode
@@ -155,6 +155,9 @@ class TorchTrainer:
     def _fit(self, train_data, validation_data):
         for e in range(self.global_step, self.n_epochs):
             self.global_step = e
+            for cb in self.callbacks:
+                cb.before_epoch(self, train_data, validation_data)
+
             self.fit_epoch(train_data)
 
             if e % self.validation_steps == 0:
@@ -239,7 +242,8 @@ class TorchTrainer:
 
 
 class SequentialTaskTrainer(TorchTrainer):
-    def __init__(self, model, optimizer, n_epochs=100, log_dir=None, regularizers=None, callbacks=None, grad_clip=10, patience=5000, **kwargs):
+    def __init__(self, model, optimizer, n_epochs=100, log_dir=None, regularizers=None, callbacks=None, grad_clip=10,
+                 patience=5000, **kwargs):
         super().__init__(model, n_epochs, log_dir, patience=patience, **kwargs)
         self.opt = optimizer
         self.grad_clip = grad_clip
@@ -257,11 +261,12 @@ class SequentialTaskTrainer(TorchTrainer):
             err = 0
             acc = 0
             bi = 0
-            for xi, yi in tqdm(data.iter()):
+            for batch in tqdm(data.iter()):
+                xi, yi = batch
                 assert len(xi.shape) == 3
                 y_pred = self.model(xi)
-                err += xi.shape[1] * data.loss_score(y_pred, yi)
-                acc += xi.shape[1] * data.metric_score(y_pred, yi)
+                err += xi.shape[1] * data.loss_score(batch, y_pred)
+                acc += xi.shape[1] * data.metric_score(batch, y_pred)
                 bi += xi.shape[1]
             err = err / bi
             acc = acc / bi
@@ -274,9 +279,10 @@ class SequentialTaskTrainer(TorchTrainer):
 
     def fit_epoch(self, train_data):
         self.model.train()
-        for xi, yi in tqdm(train_data.iter()):
+        for batch in tqdm(train_data.iter()):
+            xi, yi = batch
             y_pred = self.model(xi)
-            err = train_data.loss_score(y_pred, yi)
+            err = train_data.loss_score(batch, y_pred)
 
             reg = 0.0
             for reg_foo in self.regularizers:
