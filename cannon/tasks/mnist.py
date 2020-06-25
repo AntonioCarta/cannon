@@ -58,13 +58,15 @@ class MNISTDigit(Dataset):
     def output_shape(self):
         return 1, 10
 
-    def metric_score(self, y_pred, y_target):
+    def metric_score(self, batch, y_pred):
         """ Accuracy score. """
         assert len(y_pred.shape) == 2
+        x, y_target = batch
         return (y_pred.argmax(dim=1) == y_target).float().mean()
 
-    def loss_score(self, y_pred, y_target):
+    def loss_score(self, batch, y_pred):
         """ Cross-entropy loss. """
+        x, y_target = batch
         return F.cross_entropy(y_pred, y_target)
 
     def visualize_sample(self, x, y):
@@ -119,6 +121,7 @@ class PermutedPixelMNIST(MNISTDigit):
             debug: if True only loads a small number of samples (e.g. 100)
         """
         super().__init__(data_dir, set_key, debug, batch_size)
+        assert perm_file is not None  # disable random permutation
         if perm_file:
             self.permute = torch.load(perm_file)
         else:
