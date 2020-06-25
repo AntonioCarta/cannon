@@ -1,6 +1,7 @@
 """
     Common interface for datasets (used at least for most of the synthetic tasks in cannon).
 """
+import torch.nn.functional as F
 
 
 class Dataset:
