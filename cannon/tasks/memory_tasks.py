@@ -5,7 +5,7 @@ from cannon.utils import cuda_move
 
 
 class CopyTask:
-    def __init__(self, S, T, K=2):
+    def __init__(self, S, T, K=2, batch_size=64):
         """
         Copy task.
         The model must be able to memorize a sequence of S elements and reconstruct it after T timesteps.
@@ -26,10 +26,12 @@ class CopyTask:
             S (int): sequence length
             T (int): blank length
             K (int): alphabet size
+            batch_size (int): batch size
         """
         self.S = S
         self.T = T
         self.K = K
+        self.batch_size = batch_size
 
     @property
     def input_shape(self):
@@ -41,10 +43,18 @@ class CopyTask:
         """ Output shape. If batch is not set by the class, it is set to 1. """
         return 2 * self.S + self.T, 1, self.K + 2
 
+    @property
+    def input_size(self):
+        return 1
+
+    @property
+    def output_size(self):
+        return self.K + 2
+
     def get_batch(self, batch_size):
-        rand_seq = torch.randint(0, self.K, (self.S, batch_size)).long()
-        blank_T = self.K * torch.ones((self.T, batch_size)).long()
-        blank_S = self.K * torch.ones((self.S, batch_size)).long()
+        rand_seq = torch.randint(0, self.K, (self.S, batch_size, 1)).long()
+        blank_T = self.K * torch.ones((self.T, batch_size, 1)).long()
+        blank_S = self.K * torch.ones((self.S, batch_size, 1)).long()
 
         input_seq = torch.cat([rand_seq, blank_T, blank_S], dim=0)
         input_seq[self.T + self.S - 1, :] = self.K + 1
@@ -62,6 +72,10 @@ class CopyTask:
         str_x = " in:" + "".join(str(el) for el in x.tolist())
         str_y = "out:" + "".join(str(el) for el in y.argmax(dim=1).tolist())
         return str_x + '\n' + str_y
+
+    def iter(self):
+        for ii in range(1000):
+            yield self.get_batch(self.batch_size)
 
 
 class AdditionTask:
