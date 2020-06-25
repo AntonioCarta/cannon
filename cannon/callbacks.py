@@ -14,12 +14,14 @@ import json
 try:
     from comet_ml import Experiment
 except ModuleNotFoundError:
-    print("comet_ml is not available. CometCallback cannot be used without it.")
+    pass
+    # print("comet_ml is not available. CometCallback cannot be used without it.")
 
 try:
     from tensorboardX import SummaryWriter
 except ModuleNotFoundError:
-    print("tensorboardX is not available. TBCallback cannot be used without it.")
+    pass
+    # print("tensorboardX is not available. TBCallback cannot be used without it.")
 
 
 class TrainingCallback:
@@ -27,6 +29,9 @@ class TrainingCallback:
         pass
 
     def before_training(self, model_trainer):
+        pass
+
+    def before_epoch(self, model_trainer, train_data, validation_data):
         pass
 
     def after_epoch(self, model_trainer, train_data, validation_data):
@@ -251,6 +256,28 @@ class ModelCheckpoint(TrainingCallback):
     def __init__(self, log_dir):
         super().__init__()
         self.log_dir = log_dir
+
+    def before_epoch(self, model_trainer, train_data, validation_data):
+        if model_trainer.global_step == 0:
+            def try_save(model_name):
+                if isinstance(model_trainer.model, torch.jit.ScriptModule):
+                    # ScriptModule should be checked first because it is a subclass of nn.Module.
+                    try:
+                        model_trainer.model.save(model_name + '.ptj')
+                    except Exception as e:
+                        torch.save(model_trainer.model, model_name + '.pt')
+                elif isinstance(model_trainer.model, torch.nn.Module):
+                    torch.save(model_trainer.model, model_name + '.pt')
+                    torch.save(model_trainer.model.state_dict(), model_name + '_dict.pt')
+                else:
+                    raise TypeError("Unrecognized model type. Cannot serialize.")
+
+            try:
+                try_save(self.log_dir + 'init_model')
+            except Exception as err:
+                model_trainer.logger.debug(err)
+                model_trainer.logger.info('Error during model checkpoint phase.')
+                assert False
 
     def after_train_before_validate(self, model_trainer):
         model_name = self.log_dir + 'best_model'
