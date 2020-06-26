@@ -263,7 +263,7 @@ class SequentialTaskTrainer(TorchTrainer):
             bi = 0
             for batch in tqdm(data.iter()):
                 xi, yi = batch
-                assert len(xi.shape) == 3
+                # assert len(xi.shape) == 3
                 y_pred = self.model(xi)
                 err += xi.shape[1] * data.loss_score(batch, y_pred)
                 acc += xi.shape[1] * data.metric_score(batch, y_pred)

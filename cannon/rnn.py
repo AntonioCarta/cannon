@@ -224,3 +224,22 @@ class ItemClassifier(nn.Module):
         self._act_list = h_seq
         y = self.ro(h_seq)
         return y
+
+
+class DiscreteRNN(nn.Module):
+    def __init__(self, input_size, output_size, hidden_size, rnn):
+        super().__init__()
+        self.input_size = input_size
+        self.output_size = output_size
+        self.hidden_size = hidden_size
+        self.embed = nn.Embedding(input_size, hidden_size)
+        self.ro = nn.Linear(hidden_size, output_size)
+        self.rnn = rnn
+        standard_init(self.parameters())
+
+    def forward(self, x):
+        emb = self.embed(x)
+        h0 = self.rnn.init_hidden(x.shape[1])
+        ed_out, _ = self.rnn(emb, h0)
+        y_out = self.ro(ed_out)
+        return y_out  # logits
