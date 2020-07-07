@@ -267,7 +267,10 @@ class ModelCheckpoint(TrainingCallback):
                     except Exception as e:
                         torch.save(model_trainer.model, model_name + '.pt')
                 elif isinstance(model_trainer.model, torch.nn.Module):
-                    torch.save(model_trainer.model, model_name + '.pt')
+                    try:
+                        torch.save(model_trainer.model, model_name + '.pt')
+                    except Exception as e:
+                        pass
                     torch.save(model_trainer.model.state_dict(), model_name + '_dict.pt')
                 else:
                     raise TypeError("Unrecognized model type. Cannot serialize.")
@@ -277,7 +280,7 @@ class ModelCheckpoint(TrainingCallback):
             except Exception as err:
                 model_trainer.logger.debug(err)
                 model_trainer.logger.info('Error during model checkpoint phase.')
-                assert False
+                raise err
 
     def after_train_before_validate(self, model_trainer):
         model_name = self.log_dir + 'best_model'
