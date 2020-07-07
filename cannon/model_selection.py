@@ -27,7 +27,7 @@ class RandomSampler:
 
 class RayModelSelection(Experiment):
     def __init__(self, log_dir, param_list, train_foo, num_cpus,
-                 resume_ok=True, logs_subfolder_key='model_type'):
+                 resume_ok=True, logs_subfolder_key='model_type', debug=False):
         self.results = []
         super().__init__(log_dir, resume_ok=resume_ok)
         self.logs_subfolder_key = logs_subfolder_key
@@ -36,6 +36,7 @@ class RayModelSelection(Experiment):
         self.results = []
         self.id = id
         self.num_cpus = num_cpus
+        self.debug=debug
 
         if os.environ.get('ip_head') is not None:
             assert os.environ.get('redis_password') is not None
@@ -67,6 +68,9 @@ class RayModelSelection(Experiment):
         for i, pl in enumerate(self.param_list[start_i:]):
             self.experiment_log.info(f"Config {i} ->\t{pl}")
 
+        if self.debug:
+            self.run_debug_mode(config)
+
         ids = []
         for i, params in enumerate(self.param_list[start_i:]):
             i = i + start_i  # for logging purposes
@@ -79,6 +83,19 @@ class RayModelSelection(Experiment):
         for i, params in enumerate(self.param_list[start_i:]):
             self.experiment_log.info(f"Waiting Configuration {i}: {params}")
             res = ray.get(ids[i])
+            self.results.append(res)
+            self.save_checkpoint(config)
+            self.experiment_log.info(f"Configuration {i}: {params}")
+            self.experiment_log.info("TR loss: {}, metric: {}".format(res['tr_loss'], res['tr_acc']))
+            self.experiment_log.info("VL loss: {}, metric: {}".format(res['vl_loss'], res['vl_acc']))
+
+    def run_debug_mode(self, config):
+        for i, params in enumerate(self.param_list):
+            self.experiment_log.info(f"Launching Configuration {i}: {params}")
+            train_log_dir = self.log_dir + f'{params[self.logs_subfolder_key]}/k_{i}/'
+            os.makedirs(train_log_dir, exist_ok=True)
+            res = self.train_foo(log_dir=train_log_dir, params=params)
+
             self.results.append(res)
             self.save_checkpoint(config)
             self.experiment_log.info(f"Configuration {i}: {params}")
