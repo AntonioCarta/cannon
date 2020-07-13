@@ -236,10 +236,12 @@ class DiscreteRNN(nn.Module):
         self.ro = nn.Linear(hidden_size, output_size)
         self.rnn = rnn
         standard_init(self.parameters())
+        self._emb = None
 
     def forward(self, x):
         emb = self.embed(x)
         h0 = self.rnn.init_hidden(x.shape[1])
         ed_out, _ = self.rnn(emb, h0)
         y_out = self.ro(ed_out)
+        self._emb = emb
         return y_out  # logits
