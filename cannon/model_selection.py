@@ -40,11 +40,11 @@ class RayModelSelection(Experiment):
 
         if os.environ.get('ip_head') is not None:
             assert os.environ.get('redis_password') is not None
-            ray.init(address=os.environ.get('ip_head'), redis_password=os.environ.get('redis_password'))
+            ray.init(address=os.environ.get('ip_head'), redis_password=os.environ.get('redis_password'), ignore_reinit_error=True)
             self.experiment_log.info("Connected to Ray cluster.")
             self.experiment_log.info(f"Available nodes: {ray.nodes()}")
         else:
-            ray.init()
+            ray.init(ignore_reinit_error=True)
             self.experiment_log.info(f"Started local ray instance.")
 
     def save_checkpoint(self, config):
