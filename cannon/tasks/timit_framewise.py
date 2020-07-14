@@ -95,17 +95,17 @@ all_phonemes = [
 
 
 def lazy_preprocess(base_timit):
-    if not os.path.exists(os.path.join(base_timit, f'framewise_phoneme/train_segm.pkl')):
+    if not os.path.exists(os.path.join(base_timit, 'framewise_phoneme', 'train_segm.pkl')):
         print("preprocessing training set.")
         data = preprocess_timit(base_timit, 'train')
-        with open(os.path.join(base_timit, f'framewise_phoneme/train_segm.pkl'), 'wb') as f:
+        with open(os.path.join(base_timit, 'framewise_phoneme', 'train_segm.pkl'), 'wb') as f:
             pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
-    if not os.path.exists(os.path.join(base_timit, f'framewise_phoneme/test_segm.pkl')):
+    if not os.path.exists(os.path.join(base_timit, 'framewise_phoneme', 'test_segm.pkl')):
         print("preprocessing validation set.")
         data = preprocess_timit(base_timit, 'test')
-        with open(os.path.join(base_timit, f'framewise_phoneme/test_segm.pkl'), 'wb') as f:
+        with open(os.path.join(base_timit, r'framewise_phoneme/test_segm.pkl'), 'wb') as f:
             pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
-    if not os.path.exists(os.path.join(base_timit, f'framewise_phoneme/train_split.pkl')):
+    if not os.path.exists(os.path.join(base_timit, 'framewise_phoneme', 'train_split.pkl')):
         print("splitting training/validation set.")
         save_normalized_splits(base_timit, 0.2)
 
