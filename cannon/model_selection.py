@@ -9,6 +9,7 @@ import pickle
 import os
 import json
 import ray
+import torch
 
 
 class RandomSampler:
@@ -105,6 +106,7 @@ class RayModelSelection(Experiment):
     def run_single_model(self, train_log_dir, params):
         @ray.remote(num_cpus=self.num_cpus)
         def aux_foo():
+            torch.set_num_threads(self.num_cpus)
             return self.train_foo(log_dir=train_log_dir, params=params)
         return aux_foo.remote()
 
