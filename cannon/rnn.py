@@ -118,6 +118,7 @@ class LSTMCell(nn.Module):
         cy = (forgetgate * cx) + (ingate * cellgate)
         hy = outgate * torch.tanh(cy)
 
+        self._ingate, self._forgetgate, self._cellgate, self._outgate = ingate, forgetgate, cellgate, outgate
         return hy, (hy, cy)
 
 
@@ -167,6 +168,27 @@ class LSTMLayer(RecurrentLayer):
     def __init__(self, in_size, hidden_size, fbias=0.0):
         layer = LSTMCell(in_size, hidden_size, fbias=fbias)
         super().__init__(layer)
+
+    def forward(self, x, m_prev):
+        assert len(x.shape) == 3
+        self._ingate, self._forgetgate, self._cellgate, self._outgate = [], [], [], []
+        out = []
+        x = x.unbind(0)
+        for t in range(len(x)):
+            xt = x[t]
+            h_prev, m_prev = self.layer(xt, m_prev)
+            out.append(h_prev)
+
+            self._ingate.append(self.layer._ingate)
+            self._forgetgate.append(self.layer._forgetgate)
+            self._cellgate.append(self.layer._cellgate)
+            self._outgate.append(self.layer._outgate)
+
+        self._ingate = torch.stack(self._ingate, dim=0)
+        self._forgetgate = torch.stack(self._forgetgate, dim=0)
+        self._cellgate = torch.stack(self._cellgate, dim=0)
+        self._outgate = torch.stack(self._outgate, dim=0)
+        return torch.stack(out), m_prev
 
 
 class LSTMDetachLayer(nn.Module):
