@@ -1,10 +1,24 @@
 import json
 import logging
 import os
-import pickle
 import sys
 
-import numpy as np
+
+def create_experiment_logger(log_dir):
+    experiment_log = logging.getLogger(log_dir)
+    experiment_log.setLevel(logging.DEBUG)
+    log_file = log_dir + 'logbook.log'
+    fh = logging.FileHandler(log_file)
+    fh.setLevel(logging.DEBUG)
+    formatter = logging.Formatter('%(asctime)s %(levelname)s: %(message)s',
+                                  datefmt='%m/%d/%Y %I:%M:%S')
+    fh.setFormatter(formatter)
+    experiment_log.addHandler(fh)
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.INFO)
+    ch.setFormatter(formatter)
+    experiment_log.addHandler(ch)
+    return experiment_log
 
 
 class Experiment:

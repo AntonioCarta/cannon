@@ -119,6 +119,7 @@ class LSTMCell(nn.Module):
         hy = outgate * torch.tanh(cy)
 
         self._ingate, self._forgetgate, self._cellgate, self._outgate = ingate, forgetgate, cellgate, outgate
+        self._cell = cy
         return hy, (hy, cy)
 
 
@@ -171,7 +172,7 @@ class LSTMLayer(RecurrentLayer):
 
     def forward(self, x, m_prev):
         assert len(x.shape) == 3
-        self._ingate, self._forgetgate, self._cellgate, self._outgate = [], [], [], []
+        self._ingate, self._forgetgate, self._cellgate, self._outgate, self._cell = [], [], [], [], []
         out = []
         x = x.unbind(0)
         for t in range(len(x)):
@@ -183,11 +184,13 @@ class LSTMLayer(RecurrentLayer):
             self._forgetgate.append(self.layer._forgetgate)
             self._cellgate.append(self.layer._cellgate)
             self._outgate.append(self.layer._outgate)
+            self._cell.append(self.layer._cell)
 
         self._ingate = torch.stack(self._ingate, dim=0)
         self._forgetgate = torch.stack(self._forgetgate, dim=0)
         self._cellgate = torch.stack(self._cellgate, dim=0)
         self._outgate = torch.stack(self._outgate, dim=0)
+        self._cell = torch.stack(self._cell, dim=0)
         return torch.stack(out), m_prev
 
 

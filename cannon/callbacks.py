@@ -278,7 +278,7 @@ class ModelCheckpoint(TrainingCallback):
             try:
                 try_save(self.log_dir + 'init_model')
             except Exception as err:
-                model_trainer.logger.debug(err)
+                model_trainer.logger.info(err)
                 model_trainer.logger.info('Error during model checkpoint phase.')
                 raise err
 

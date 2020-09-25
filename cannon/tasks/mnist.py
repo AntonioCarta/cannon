@@ -40,11 +40,10 @@ class MNISTDigit(Dataset):
 
     def iter(self):
         n_samples = self.data.shape[0]
-        if self.set_key == 'train':
-            # shuffle dataset
-            idxs = torch.randperm(n_samples)
-            self.data = self.data[idxs]
-            self.labels = self.labels[idxs]
+        # shuffle dataset
+        idxs = torch.randperm(n_samples)
+        self.data = self.data[idxs]
+        self.labels = self.labels[idxs]
         for ii in range(0, n_samples, self.batch_size):
             xi = self.data[ii: ii+self.batch_size]
             yi = self.labels[ii: ii+self.batch_size]

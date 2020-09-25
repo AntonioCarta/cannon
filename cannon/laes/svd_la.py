@@ -313,7 +313,7 @@ class LinearAutoencoder:
         self.mean = 0.0
         self.sigma = None
 
-    def fit(self, data, svd_algo='fb_pca', approx_k=1, t_max=None, verbose=False):
+    def fit(self, data, svd_algo='fb_pca', approx_k=1, t_max=None, verbose=False, save_svd=False):
         """
         Fit the Linear Autoencoder using SVD-based training.
 
@@ -374,6 +374,11 @@ class LinearAutoencoder:
         V = V[:, :p]
         s = s[:p]
         Uh = Uh[:p, :]
+
+        if save_svd:
+            self.V = V
+            self.s = s
+            self.Uh = Uh
 
         inv_s = s.copy()
         inv_s[s > self.epsilon] = 1 / s[s > self.epsilon]
